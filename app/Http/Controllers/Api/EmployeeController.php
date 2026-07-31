@@ -20,8 +20,8 @@ class EmployeeController extends Controller
     {
         $employees = User::where('role', 'employee')
             ->with('employeeProfile.branch:id,name,city')
-            ->withCount(['documents', 'guarantors'])
             ->select('id', 'name', 'email', 'phone', 'is_active', 'created_at', 'password_changed_at')
+            ->withCount(['documents', 'guarantors'])
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(fn ($emp) => array_merge($emp->toArray(), [

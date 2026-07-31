@@ -11,8 +11,8 @@ class CustomerController extends Controller
     public function index(): JsonResponse
     {
         $customers = User::where('role', 'customer')
-            ->withCount('orders')
             ->select('id', 'name', 'email', 'phone', 'is_active', 'created_at')
+            ->withCount('orders')
             ->orderBy('created_at', 'desc')
             ->get();
 
