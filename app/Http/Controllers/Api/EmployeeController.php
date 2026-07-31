@@ -19,7 +19,7 @@ class EmployeeController extends Controller
     public function index(): JsonResponse
     {
         $employees = User::where('role', 'employee')
-            ->with('employeeProfile.branch:id,name,city')
+            ->with(['employeeProfile.branch:id,name,city', 'guarantors'])
             ->select('id', 'name', 'email', 'phone', 'is_active', 'created_at', 'password_changed_at')
             ->withCount(['documents', 'guarantors'])
             ->orderBy('created_at', 'desc')
@@ -127,6 +127,80 @@ class EmployeeController extends Controller
             'default_password' => $defaultPassword,
             'message' => "Employee created. Default password: {$defaultPassword}",
         ], 201);
+    }
+
+    public function update(Request $request, User $user): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:users,email,'.$user->id,
+            'phone' => 'required|string|max:20',
+            'nida_number' => 'nullable|string|max:20|required_without:voting_id_number',
+            'voting_id_number' => 'nullable|string|max:30|required_without:nida_number',
+            'branch_id' => 'nullable|exists:branches,id',
+            'position' => 'nullable|string|max:255',
+            'department' => 'nullable|string|max:255',
+            'commission_rate' => 'nullable|numeric|min:0|max:100',
+            'guarantors' => 'nullable|array',
+            'guarantors.*.full_name' => 'required|string|max:255',
+            'guarantors.*.phone' => 'required|string|max:20',
+            'guarantors.*.relationship' => 'required|string|max:100',
+            'guarantors.*.address' => 'nullable|string|max:255',
+        ], [
+            'name.required' => 'Please enter the employee\'s full name.',
+            'email.required' => 'Please enter the employee\'s email address.',
+            'email.email' => 'Please enter a valid email address.',
+            'email.unique' => 'An account with this email already exists.',
+            'phone.required' => 'Please enter the employee\'s phone number.',
+            'nida_number.required_without' => 'Provide the NIDA number or the Voting ID card number.',
+            'voting_id_number.required_without' => 'Provide the NIDA number or the Voting ID card number.',
+            'guarantors.*.full_name.required' => 'Guarantor full name is required.',
+            'guarantors.*.phone.required' => 'Guarantor phone number is required.',
+            'guarantors.*.relationship.required' => 'Guarantor relationship is required.',
+        ]);
+
+        DB::transaction(function () use ($validated, $user) {
+            $user->update([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'phone' => $validated['phone'],
+            ]);
+
+            $profile = $user->employeeProfile()->firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'employee_code' => 'EMP-' . strtoupper(\Illuminate\Support\Str::random(6)),
+                    'position' => 'Staff',
+                    'hire_date' => now(),
+                ]
+            );
+
+            $profile->update([
+                'branch_id' => $validated['branch_id'] ?? null,
+                'position' => $validated['position'] ?? null,
+                'department' => $validated['department'] ?? null,
+                'commission_rate' => $validated['commission_rate'] ?? 0,
+                'nida_number' => $validated['nida_number'] ?? null,
+                'voting_id_number' => $validated['voting_id_number'] ?? null,
+            ]);
+
+            if (array_key_exists('guarantors', $validated)) {
+                $user->guarantors()->delete();
+                foreach ($validated['guarantors'] as $guarantor) {
+                    EmployeeGuarantor::create(array_merge($guarantor, [
+                        'user_id' => $user->id,
+                    ]));
+                }
+            }
+        });
+
+        $user->load(['employeeProfile.branch:id,name,city', 'documents', 'guarantors']);
+
+        return response()->json([
+            'user' => $user->only('id', 'name', 'email', 'phone'),
+            'guarantors_count' => $user->guarantors->count(),
+            'message' => 'Employee updated',
+        ]);
     }
 
     private function storeAttachments(User $user, Request $request, array &$storedPaths): void

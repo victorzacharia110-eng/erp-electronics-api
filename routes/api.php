@@ -68,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('owner')->group(function () {
         Route::get('/employees', [EmployeeController::class, 'index']);
         Route::post('/employees', [EmployeeController::class, 'store']);
+        Route::put('/employees/{user}', [EmployeeController::class, 'update']);
         Route::patch('/employees/{user}/toggle-status', [EmployeeController::class, 'toggleStatus']);
         Route::patch('/employees/{user}/assign-branch', [EmployeeController::class, 'assignBranch']);
         Route::delete('/employees/{user}', [EmployeeController::class, 'destroy']);
