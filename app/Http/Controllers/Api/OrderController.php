@@ -2,14 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\AccountingException;
 use App\Http\Controllers\Controller;
-use App\Models\Account;
-use App\Models\Commission;
 use App\Models\InventoryTransaction;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
 use App\Models\Order;
-use App\Models\ProductVariant;
+use App\Services\AccountingEntryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +14,10 @@ use Illuminate\Support\Str;
 
 class OrderController extends Controller
 {
+    public function __construct(
+        private AccountingEntryService $entries = new AccountingEntryService()
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -123,98 +124,44 @@ class OrderController extends Controller
             'status' => 'required|in:pending,pending_payment,inactive,paid,processing,shipped,delivered,cancelled',
         ]);
 
-        $order = Order::with('items.productVariant.inventory')
-            ->where('id', $orderId)
-            ->firstOrFail();
-
-        $oldStatus = $order->status;
+        $user = $request->user();
         $newStatus = $validated['status'];
 
-        $order->update([
-            'status' => $newStatus,
-            'handled_by' => $request->user()->id,
-        ]);
+        try {
+            DB::beginTransaction();
 
-        if ($newStatus === 'paid' && $oldStatus !== 'paid') {
-            $ownerId = $order->branch ? $order->branch->owner_id : $request->user()->id;
+            $order = Order::with('items.productVariant.inventory')
+                ->where('id', $orderId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            foreach ($order->items as $item) {
-                $inventory = $item->productVariant->inventory;
-                if ($inventory) {
-                    $inventory->decrement('quantity_on_hand', $item->quantity);
-                    InventoryTransaction::create([
-                        'owner_id' => $ownerId,
-                        'product_variant_id' => $item->product_variant_id,
-                        'type' => 'sale',
-                        'quantity_change' => -$item->quantity,
-                        'quantity_after' => $inventory->fresh()->quantity_on_hand,
-                        'unit_cost' => $item->productVariant->cost_price,
-                        'reference_type' => 'order',
-                        'reference_id' => $order->id,
-                        'notes' => "Sale: {$order->order_number}",
-                        'created_by' => $request->user()->id,
-                    ]);
-                }
+            $oldStatus = $order->status;
+            $order->update([
+                'status' => $newStatus,
+                'handled_by' => $user->id,
+            ]);
+
+            if ($newStatus === 'paid' && $oldStatus !== 'paid') {
+                $this->confirmPaidOrder($order, $user);
             }
 
-            $this->createRevenueEntry($order, $request->user());
-
-            $handledBy = $order->handled_by ?? $request->user()->id;
-            $handler = \App\Models\User::with('employeeProfile')->find($handledBy);
-            if ($handler && $handler->role === 'employee' && $handler->employeeProfile && $handler->employeeProfile->commission_rate > 0) {
-                $rate = $handler->employeeProfile->commission_rate;
-
-                $costAmount = 0;
-                foreach ($order->items as $item) {
-                    $costAmount += ($item->productVariant->cost_price ?? 0) * $item->quantity;
-                }
-                $profitAmount = $order->subtotal - $costAmount;
-                $commissionAmount = max(0, $profitAmount * ($rate / 100));
-
-                Commission::create([
-                    'owner_id' => $ownerId,
-                    'employee_id' => $handler->id,
-                    'order_id' => $order->id,
-                    'order_amount' => $order->subtotal,
-                    'cost_amount' => $costAmount,
-                    'profit_amount' => $profitAmount,
-                    'commission_rate' => $rate,
-                    'commission_amount' => $commissionAmount,
-                ]);
+            if ($newStatus === 'cancelled' && in_array($oldStatus, ['paid', 'processing'])) {
+                $this->reversePaidOrder($order, $user);
             }
+
+            DB::commit();
+
+            return response()->json([
+                'order' => $order->fresh(['items.productVariant.product', 'payments', 'handler', 'user']),
+                'message' => "Order status updated to {$newStatus}",
+            ]);
+        } catch (AccountingException $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to update order status'], 500);
         }
-
-        if ($newStatus === 'cancelled' && in_array($oldStatus, ['paid', 'processing'])) {
-            $ownerId = $order->branch ? $order->branch->owner_id : $request->user()->id;
-
-            foreach ($order->items as $item) {
-                $inventory = $item->productVariant->inventory;
-                if ($inventory) {
-                    $inventory->increment('quantity_on_hand', $item->quantity);
-                    InventoryTransaction::create([
-                        'owner_id' => $ownerId,
-                        'product_variant_id' => $item->product_variant_id,
-                        'type' => 'return',
-                        'quantity_change' => $item->quantity,
-                        'quantity_after' => $inventory->fresh()->quantity_on_hand,
-                        'unit_cost' => $item->productVariant->cost_price,
-                        'reference_type' => 'order',
-                        'reference_id' => $order->id,
-                        'notes' => "Return: {$order->order_number}",
-                        'created_by' => $request->user()->id,
-                    ]);
-                }
-            }
-
-            Commission::where('order_id', $order->id)->where('status', 'pending')->delete();
-
-            $this->createReversalEntry($order, $request->user());
-        }
-
-        return response()->json([
-            'order' => $order->fresh(['items.productVariant.product', 'payments', 'handler', 'user']),
-            'message' => "Order status updated to {$newStatus}",
-        ]);
     }
 
     public function updateDelivery(Request $request, string $orderId): JsonResponse
@@ -240,99 +187,149 @@ class OrderController extends Controller
         ]);
     }
 
-    private function createRevenueEntry(Order $order, $user): void
+    public function returnItems(Request $request, string $orderId): JsonResponse
     {
-        $ownerId = $order->branch ? $order->branch->owner_id : $user->id;
-        $cashAccount = Account::where('owner_id', $ownerId)->where('code', '1020')->first();
-        $salesRevenueAccount = Account::where('owner_id', $ownerId)->where('code', '4010')->first();
-        $shippingRevenueAccount = Account::where('owner_id', $ownerId)->where('code', '4020')->first();
-        $cogsAccount = Account::where('owner_id', $ownerId)->where('code', '5010')->first();
-        $inventoryAccount = Account::where('owner_id', $ownerId)->where('code', '1200')->first();
-
-        if (!$cashAccount || !$salesRevenueAccount) return;
-
-        $cogsTotal = 0;
-        foreach ($order->items as $item) {
-            $costPrice = $item->productVariant->cost_price ?? 0;
-            $cogsTotal += $costPrice * $item->quantity;
-        }
-
-        $lines = [
-            ['account_id' => $cashAccount->id, 'debit' => $order->total, 'credit' => 0, 'description' => "Payment for {$order->order_number}"],
-            ['account_id' => $salesRevenueAccount->id, 'debit' => 0, 'credit' => $order->subtotal, 'description' => "Sale: {$order->order_number}"],
-        ];
-
-        if ($order->shipping_cost > 0 && $shippingRevenueAccount) {
-            $lines[] = ['account_id' => $shippingRevenueAccount->id, 'debit' => 0, 'credit' => $order->shipping_cost, 'description' => "Shipping: {$order->order_number}"];
-        }
-
-        if ($cogsTotal > 0 && $cogsAccount && $inventoryAccount) {
-            $lines[] = ['account_id' => $cogsAccount->id, 'debit' => $cogsTotal, 'credit' => 0, 'description' => "COGS: {$order->order_number}"];
-            $lines[] = ['account_id' => $inventoryAccount->id, 'debit' => 0, 'credit' => $cogsTotal, 'description' => "Inventory out: {$order->order_number}"];
-        }
-
-        $entry = JournalEntry::create([
-            'owner_id' => $ownerId,
-            'reference' => JournalEntry::generateReference($ownerId),
-            'date' => now()->toDateString(),
-            'description' => "Revenue from order {$order->order_number}",
-            'status' => 'posted',
-            'posted_by' => $user->id,
-            'posted_at' => now(),
-            'source_type' => 'order',
-            'source_id' => $order->id,
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.order_item_id' => 'required|exists:order_items,id',
+            'items.*.quantity' => 'required|integer|min:1',
         ]);
 
-        foreach ($lines as $line) {
-            $entry->lines()->create($line);
+        $user = $request->user();
+
+        try {
+            DB::beginTransaction();
+
+            $order = Order::with(['items.productVariant.product.inventory', 'branch'])
+                ->where('id', $orderId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (!in_array($order->status, ['paid', 'processing', 'shipped', 'delivered'])) {
+                throw new AccountingException('Only paid, processing, shipped, or delivered orders can be returned.');
+            }
+
+            $ownerId = $order->branch ? $order->branch->owner_id : $user->id;
+            $returnedAmount = 0;
+            $returnedCogs = 0;
+
+            foreach ($validated['items'] as $returnItem) {
+                $item = $order->items->firstWhere('id', $returnItem['order_item_id']);
+
+                if (!$item) {
+                    throw new AccountingException('One or more items do not belong to this order.');
+                }
+
+                $quantity = (int) $returnItem['quantity'];
+                $available = $item->quantity - (int) $item->returned_quantity;
+
+                if ($quantity > $available) {
+                    throw new AccountingException('Return quantity exceeds the purchased quantity.');
+                }
+
+                $item->update(['returned_quantity' => (int) $item->returned_quantity + $quantity]);
+
+                $inventory = $item->productVariant->inventory;
+                if ($inventory) {
+                    $inventory->increment('quantity_on_hand', $quantity);
+                    InventoryTransaction::create([
+                        'owner_id' => $ownerId,
+                        'product_variant_id' => $item->product_variant_id,
+                        'type' => 'return',
+                        'quantity_change' => $quantity,
+                        'quantity_after' => $inventory->fresh()->quantity_on_hand,
+                        'unit_cost' => $item->productVariant->cost_price,
+                        'reference_type' => 'order',
+                        'reference_id' => $order->id,
+                        'notes' => "Return: {$order->order_number}",
+                        'created_by' => $user->id,
+                    ]);
+                }
+
+                $this->entries->postReturn($order, $item, $quantity, $user);
+
+                $unitAmount = $item->total / max(1, $item->quantity);
+                $returnedAmount += $unitAmount * $quantity;
+                $returnedCogs += ($item->productVariant->cost_price ?? 0) * $quantity;
+            }
+
+            $this->entries->adjustCommissionForReturn($order, $returnedAmount, $returnedCogs, $user);
+
+            $fullyReturned = $order->items->every(fn ($item) => (int) $item->returned_quantity >= $item->quantity);
+            if ($fullyReturned) {
+                $order->update(['status' => 'cancelled']);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'order' => $order->fresh(['items.productVariant.product', 'payments', 'handler', 'user']),
+                'message' => 'Return processed successfully',
+            ]);
+        } catch (AccountingException $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to process return'], 500);
         }
     }
 
-    private function createReversalEntry(Order $order, $user): void
+    private function confirmPaidOrder(Order $order, $user): void
     {
         $ownerId = $order->branch ? $order->branch->owner_id : $user->id;
-        $cashAccount = Account::where('owner_id', $ownerId)->where('code', '1020')->first();
-        $salesRevenueAccount = Account::where('owner_id', $ownerId)->where('code', '4010')->first();
-        $shippingRevenueAccount = Account::where('owner_id', $ownerId)->where('code', '4020')->first();
-        $cogsAccount = Account::where('owner_id', $ownerId)->where('code', '5010')->first();
-        $inventoryAccount = Account::where('owner_id', $ownerId)->where('code', '1200')->first();
 
-        if (!$cashAccount || !$salesRevenueAccount) return;
-
-        $cogsTotal = 0;
         foreach ($order->items as $item) {
-            $costPrice = $item->productVariant->cost_price ?? 0;
-            $cogsTotal += $costPrice * $item->quantity;
+            $inventory = $item->productVariant->inventory;
+            if ($inventory) {
+                $inventory->decrement('quantity_on_hand', $item->quantity);
+                InventoryTransaction::create([
+                    'owner_id' => $ownerId,
+                    'product_variant_id' => $item->product_variant_id,
+                    'type' => 'sale',
+                    'quantity_change' => -$item->quantity,
+                    'quantity_after' => $inventory->fresh()->quantity_on_hand,
+                    'unit_cost' => $item->productVariant->cost_price,
+                    'reference_type' => 'order',
+                    'reference_id' => $order->id,
+                    'notes' => "Sale: {$order->order_number}",
+                    'created_by' => $user->id,
+                ]);
+            }
         }
 
-        $lines = [
-            ['account_id' => $salesRevenueAccount->id, 'debit' => $order->subtotal, 'credit' => 0, 'description' => "Reversal sale: {$order->order_number}"],
-            ['account_id' => $cashAccount->id, 'debit' => 0, 'credit' => $order->total, 'description' => "Refund: {$order->order_number}"],
-        ];
+        $cogsTotal = $this->entries->computeCogsTotal($order);
 
-        if ($order->shipping_cost > 0 && $shippingRevenueAccount) {
-            $lines[] = ['account_id' => $shippingRevenueAccount->id, 'debit' => $order->shipping_cost, 'credit' => 0, 'description' => "Reversal shipping: {$order->order_number}"];
+        $this->entries->postSale($order, $user);
+
+        $this->entries->createCommission($order, $user, $cogsTotal);
+    }
+
+    private function reversePaidOrder(Order $order, $user): void
+    {
+        $ownerId = $order->branch ? $order->branch->owner_id : $user->id;
+
+        foreach ($order->items as $item) {
+            $inventory = $item->productVariant->inventory;
+            if ($inventory) {
+                $inventory->increment('quantity_on_hand', $item->quantity);
+                InventoryTransaction::create([
+                    'owner_id' => $ownerId,
+                    'product_variant_id' => $item->product_variant_id,
+                    'type' => 'return',
+                    'quantity_change' => $item->quantity,
+                    'quantity_after' => $inventory->fresh()->quantity_on_hand,
+                    'unit_cost' => $item->productVariant->cost_price,
+                    'reference_type' => 'order',
+                    'reference_id' => $order->id,
+                    'notes' => "Return: {$order->order_number}",
+                    'created_by' => $user->id,
+                ]);
+            }
         }
 
-        if ($cogsTotal > 0 && $cogsAccount && $inventoryAccount) {
-            $lines[] = ['account_id' => $inventoryAccount->id, 'debit' => $cogsTotal, 'credit' => 0, 'description' => "Inventory in: {$order->order_number}"];
-            $lines[] = ['account_id' => $cogsAccount->id, 'debit' => 0, 'credit' => $cogsTotal, 'description' => "Reversal COGS: {$order->order_number}"];
-        }
+        $this->entries->reverseSale($order, $user);
 
-        $entry = JournalEntry::create([
-            'owner_id' => $ownerId,
-            'reference' => JournalEntry::generateReference($ownerId),
-            'date' => now()->toDateString(),
-            'description' => "Reversal for cancelled order {$order->order_number}",
-            'status' => 'posted',
-            'posted_by' => $user->id,
-            'posted_at' => now(),
-            'source_type' => 'order',
-            'source_id' => $order->id,
-        ]);
-
-        foreach ($lines as $line) {
-            $entry->lines()->create($line);
-        }
+        $this->entries->reverseCommissions($order, $user);
     }
 }

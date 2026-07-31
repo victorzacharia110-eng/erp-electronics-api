@@ -16,6 +16,8 @@ class EmployeeProfile extends Model
         'hire_date',
         'commission_rate',
         'base_salary',
+        'nida_number',
+        'voting_id_number',
     ];
 
     protected function casts(): array

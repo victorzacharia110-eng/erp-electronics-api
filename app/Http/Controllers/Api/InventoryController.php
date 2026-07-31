@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\AccountingException;
 use App\Models\Inventory;
 use App\Models\InventoryTransaction;
 use App\Models\ProductVariant;
-use App\Models\Account;
-use App\Models\JournalEntry;
+use App\Models\User;
+use App\Services\AccountingEntryService;
 use App\Http\Controllers\Api\StockAlertController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,9 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryController extends Controller
 {
+    public function __construct(
+        private AccountingEntryService $entries = new AccountingEntryService()
+    ) {}
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -54,10 +58,11 @@ class InventoryController extends Controller
         ]);
 
         $user = $request->user();
-        $inventory = Inventory::where('product_variant_id', $validated['product_variant_id'])->firstOrFail();
+        $inventory = Inventory::with('productVariant.product')
+            ->where('product_variant_id', $validated['product_variant_id'])
+            ->firstOrFail();
 
-        $oldQty = $inventory->quantity_on_hand;
-        $newQty = $oldQty + $validated['quantity_change'];
+        $newQty = $inventory->quantity_on_hand + $validated['quantity_change'];
 
         if ($newQty < 0) {
             return response()->json(['message' => 'Insufficient stock'], 422);
@@ -66,10 +71,12 @@ class InventoryController extends Controller
         DB::beginTransaction();
 
         try {
+            $owner = $user->isOwner() ? $user : ($user->employeeProfile?->branch?->owner ?? $user);
+
             $inventory->update(['quantity_on_hand' => $newQty]);
 
             InventoryTransaction::create([
-                'owner_id' => $user->id,
+                'owner_id' => $owner->id,
                 'product_variant_id' => $validated['product_variant_id'],
                 'type' => $validated['type'],
                 'quantity_change' => $validated['quantity_change'],
@@ -79,14 +86,26 @@ class InventoryController extends Controller
                 'created_by' => $user->id,
             ]);
 
+            $this->entries->postInventoryAdjustment(
+                $owner,
+                $inventory->productVariant,
+                (int) $validated['quantity_change'],
+                $validated['type'],
+                $validated['notes'] ?? null,
+                $user
+            );
+
             DB::commit();
 
-            StockAlertController::checkLowStock($user->id);
+            StockAlertController::checkLowStock($owner->id);
 
             return response()->json([
                 'inventory' => $inventory->fresh('productVariant.product'),
                 'message' => 'Stock adjusted successfully',
             ]);
+        } catch (AccountingException $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to adjust stock'], 500);

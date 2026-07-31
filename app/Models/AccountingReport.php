@@ -15,6 +15,9 @@ class AccountingReport extends Model
         'period_end',
         'data',
         'summary',
+        'suggestions',
+        'suggestions_source',
+        'suggestions_generated_at',
         'is_finalized',
     ];
 
@@ -25,6 +28,8 @@ class AccountingReport extends Model
             'period_end' => 'date',
             'data' => 'array',
             'summary' => 'array',
+            'suggestions' => 'array',
+            'suggestions_generated_at' => 'datetime',
             'is_finalized' => 'boolean',
         ];
     }

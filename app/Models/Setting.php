@@ -13,6 +13,7 @@ class Setting extends Model
         return match ($this->type) {
             'boolean' => filter_var($this->value, FILTER_VALIDATE_BOOLEAN),
             'integer' => (int) $this->value,
+            'decimal', 'float' => (float) $this->value,
             'json' => json_decode($this->value, true),
             default => $this->value,
         };

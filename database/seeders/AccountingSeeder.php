@@ -27,6 +27,7 @@ class AccountingSeeder extends Seeder
             // Liabilities
             ['code' => '2010', 'name' => 'Accounts Payable', 'type' => 'liability', 'normal_balance' => 'credit', 'description' => 'Money owed to suppliers'],
             ['code' => '2100', 'name' => 'Customer Deposits', 'type' => 'liability', 'normal_balance' => 'credit', 'description' => 'Advance payments from customers'],
+            ['code' => '2500', 'name' => 'VAT Output', 'type' => 'liability', 'normal_balance' => 'credit', 'description' => 'VAT collected on sales to be remitted to TRA', 'is_system' => true],
 
             // Equity
             ['code' => '3010', 'name' => "Owner's Capital", 'type' => 'equity', 'normal_balance' => 'credit', 'description' => 'Owner investment in the business', 'is_system' => true],
@@ -47,6 +48,8 @@ class AccountingSeeder extends Seeder
             ['code' => '5070', 'name' => 'Marketing', 'type' => 'expense', 'normal_balance' => 'debit', 'description' => 'Advertising and promotions'],
             ['code' => '5080', 'name' => 'Bank Charges', 'type' => 'expense', 'normal_balance' => 'debit', 'description' => 'Transaction fees and bank charges'],
             ['code' => '5090', 'name' => 'Miscellaneous Expenses', 'type' => 'expense', 'normal_balance' => 'debit', 'description' => 'Other business expenses'],
+            ['code' => '5100', 'name' => 'Inventory Adjustments', 'type' => 'expense', 'normal_balance' => 'debit', 'description' => 'Stock write-offs, damage, and adjustment variances', 'is_system' => true],
+            ['code' => '5110', 'name' => 'Commission Expense', 'type' => 'expense', 'normal_balance' => 'debit', 'description' => 'Employee commission payouts', 'is_system' => true],
         ];
 
         foreach ($accounts as $account) {

@@ -71,6 +71,11 @@ class User extends Authenticatable
         return $this->hasMany(EmployeeDocument::class);
     }
 
+    public function guarantors(): HasMany
+    {
+        return $this->hasMany(EmployeeGuarantor::class);
+    }
+
     public function addresses(): HasMany
     {
         return $this->hasMany(Address::class);

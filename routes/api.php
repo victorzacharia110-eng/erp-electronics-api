@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AccountController;
+use App\Http\Controllers\Api\AccountingIssuesController;
 use App\Http\Controllers\Api\AccountingReportController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AddressController;
@@ -12,7 +13,6 @@ use App\Http\Controllers\Api\CommissionController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\EmployeeController;
-use App\Http\Controllers\Api\EmployeeDocumentController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\JournalEntryController;
 use App\Http\Controllers\Api\OrderController;
@@ -65,7 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
 
     // Employee management (owner only)
-    Route::prefix('owner')->group(function () {
+    Route::middleware('owner')->group(function () {
         Route::get('/employees', [EmployeeController::class, 'index']);
         Route::post('/employees', [EmployeeController::class, 'store']);
         Route::patch('/employees/{user}/toggle-status', [EmployeeController::class, 'toggleStatus']);
@@ -74,13 +74,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/employees/{user}/profile', [EmployeeController::class, 'updateProfile']);
         Route::post('/employees/{user}/reset-password', [EmployeeController::class, 'resetPassword']);
 
-        // Employee documents
-        Route::get('/employees/{user}/documents', [EmployeeDocumentController::class, 'index']);
-        Route::post('/employees/{user}/documents', [EmployeeDocumentController::class, 'store']);
-        Route::delete('/employees/{user}/documents/{document}', [EmployeeDocumentController::class, 'destroy']);
-        Route::patch('/employees/{user}/documents/{document}/verify', [EmployeeDocumentController::class, 'toggleVerify']);
-        Route::get('/employees/{user}/documents/{document}/download', [EmployeeDocumentController::class, 'download']);
-        Route::post('/employees/{user}/documents/{document}/analyze', [EmployeeDocumentController::class, 'analyze']);
+        // Employee attachments (contracts, background check)
+        Route::get('/employees/{user}/documents', [EmployeeController::class, 'indexDocuments']);
+        Route::post('/employees/{user}/documents', [EmployeeController::class, 'storeDocuments']);
+        Route::delete('/employees/{user}/documents/{document}', [EmployeeController::class, 'destroyDocument']);
+        Route::get('/employees/{user}/documents/{document}/download', [EmployeeController::class, 'downloadDocument']);
     });
 
     // Branch management (owner only)
@@ -126,6 +124,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Order management (employee/owner)
     Route::get('/orders-manage', [OrderController::class, 'manage']);
     Route::patch('/orders/{orderId}/status', [OrderController::class, 'updateStatus']);
+    Route::post('/orders/{orderId}/return', [OrderController::class, 'returnItems']);
+
+    // Accounting issues (employee + owner - actionable, branch-scoped, no P&L/equity)
+    Route::get('/accounting-issues', [AccountingIssuesController::class, 'index']);
 
     // Reports (employee/owner)
     Route::get('/reports/daily', [ReportController::class, 'daily']);
@@ -169,30 +171,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}/owner-details', [ConversationController::class, 'ownerDetails']);
     Route::get('/conversations/{conversation}/customer-details', [ConversationController::class, 'customerDetails']);
 
-    // Accounting (owner only)
-    Route::get('/accounts', [AccountController::class, 'index']);
-    Route::get('/accounts/tree', [AccountController::class, 'tree']);
-    Route::post('/accounts', [AccountController::class, 'store']);
-    Route::put('/accounts/{id}', [AccountController::class, 'update']);
-    Route::delete('/accounts/{id}', [AccountController::class, 'destroy']);
+    // Accounting (owner only - financial statements & journal management)
+    Route::middleware('owner')->group(function () {
+        Route::get('/accounts', [AccountController::class, 'index']);
+        Route::get('/accounts/tree', [AccountController::class, 'tree']);
+        Route::post('/accounts', [AccountController::class, 'store']);
+        Route::put('/accounts/{id}', [AccountController::class, 'update']);
+        Route::delete('/accounts/{id}', [AccountController::class, 'destroy']);
 
-    Route::get('/journal-entries', [JournalEntryController::class, 'index']);
-    Route::post('/journal-entries', [JournalEntryController::class, 'store']);
-    Route::get('/journal-entries/{id}', [JournalEntryController::class, 'show']);
-    Route::put('/journal-entries/{id}', [JournalEntryController::class, 'update']);
-    Route::delete('/journal-entries/{id}', [JournalEntryController::class, 'destroy']);
-    Route::post('/journal-entries/{id}/post', [JournalEntryController::class, 'post']);
-    Route::post('/journal-entries/{id}/void', [JournalEntryController::class, 'void']);
+        Route::get('/journal-entries', [JournalEntryController::class, 'index']);
+        Route::post('/journal-entries', [JournalEntryController::class, 'store']);
+        Route::get('/journal-entries/{id}', [JournalEntryController::class, 'show']);
+        Route::put('/journal-entries/{id}', [JournalEntryController::class, 'update']);
+        Route::delete('/journal-entries/{id}', [JournalEntryController::class, 'destroy']);
+        Route::post('/journal-entries/{id}/post', [JournalEntryController::class, 'post']);
+        Route::post('/journal-entries/{id}/void', [JournalEntryController::class, 'void']);
 
-    Route::get('/reports/trial-balance', [AccountingReportController::class, 'trialBalance']);
-    Route::get('/reports/profit-loss', [AccountingReportController::class, 'profitLoss']);
-    Route::get('/reports/balance-sheet', [AccountingReportController::class, 'balanceSheet']);
-    Route::get('/reports/general-ledger', [AccountingReportController::class, 'generalLedger']);
-    Route::post('/reports/generate-monthly', [AccountingReportController::class, 'generateMonthly']);
-    Route::post('/reports/generate-yearly', [AccountingReportController::class, 'generateYearly']);
-    Route::get('/reports/list', [AccountingReportController::class, 'listReports']);
-    Route::get('/reports/{id}', [AccountingReportController::class, 'showReport']);
-    Route::post('/reports/ai-suggestions', [AccountingReportController::class, 'aiSuggestions']);
+        Route::get('/reports/trial-balance', [AccountingReportController::class, 'trialBalance']);
+        Route::get('/reports/profit-loss', [AccountingReportController::class, 'profitLoss']);
+        Route::get('/reports/balance-sheet', [AccountingReportController::class, 'balanceSheet']);
+        Route::get('/reports/general-ledger', [AccountingReportController::class, 'generalLedger']);
+        Route::post('/reports/generate-monthly', [AccountingReportController::class, 'generateMonthly']);
+        Route::post('/reports/generate-yearly', [AccountingReportController::class, 'generateYearly']);
+        Route::get('/reports/list', [AccountingReportController::class, 'listReports']);
+        Route::get('/reports/{id}', [AccountingReportController::class, 'showReport']);
+        Route::post('/reports/ai-suggestions', [AccountingReportController::class, 'aiSuggestions']);
+    });
 
     // Commissions (owner + employee)
     Route::get('/commissions', [CommissionController::class, 'index']);

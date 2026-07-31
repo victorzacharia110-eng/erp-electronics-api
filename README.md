@@ -7,6 +7,92 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+# erp-electronics-api
+
+ERP API for an electronics retail business. Laravel REST API with Sanctum auth, branch-scoped employees, inventory, orders, commissions, and a double-entry accounting module.
+
+## Accounting module
+
+All money movements are posted as double-entry journal entries. Every posting runs inside a DB transaction and **fails loudly** when required system accounts or cost prices are missing, instead of silently producing unbalanced books.
+
+### System accounts
+
+Seeded per owner via `Database\Seeders\AccountingSeeder` (and `2026_07_31_000004_seed_accounting_settings_and_system_accounts`):
+
+| Code | Name | Notes |
+|------|------|-------|
+| 1020 | M-Pesa Account | Cash received / refunds |
+| 1200 | Inventory | Stock value |
+| 2500 | VAT Output | VAT collected (TRA) |
+| 3010 | Owner's Capital | Opening stock journal (optional) |
+| 3020 | Retained Earnings | Year-end close |
+| 4010 | Sales Revenue | Net of VAT |
+| 4020 | Shipping Revenue | Optional |
+| 5010 | Cost of Goods Sold | Requires cost price on every item |
+| 5100 | Inventory Adjustments | Write-offs / damage |
+| 5110 | Commission Expense | Payouts / clawback |
+
+### Settings
+
+- `vat_rate` (decimal, default `18`) – VAT percentage.
+- `prices_include_vat` (boolean, default `true`) – when true, sales prices include VAT and gross amounts are split as `net = gross * 100 / (100 + rate)`.
+- `income_tax_rate` (decimal, default `30`) – reserved for tax estimates.
+
+### Postings (App\Services\AccountingEntryService)
+
+- `postSale` / `reverseSale` – revenue + VAT + COGS + shipping for paid/cancelled orders.
+- `postReturn` – partial returns: refund, revenue/VAT/COGS reversal, inventory restock, commission adjustment.
+- `postInventoryAdjustment` – journaled stock changes (adjustment/damage/opening).
+- `createCommission` / `reverseCommissions` / `adjustCommissionForReturn` – commission accrual, clawback for cancelled or returned orders.
+- `closeYear` – closes income/expense accounts to `3020 Retained Earnings`.
+
+### Visibility rules
+
+- **Employees** (`GET /api/accounting-issues`): actionable, branch-scoped counts only (unconfirmed payments, pending deliveries, missing cost prices, draft/voided entries, pending commissions, unbalanced trial balance, low stock). **No** P&L, balance sheet, equity, margins, or AI suggestions.
+- **Owners** (`/api/accounts`, `/api/journal-entries`, `/api/reports/*`, `/api/reports/ai-suggestions`): full access, wrapped in `owner` middleware.
+
+### Commands
+
+- `php artisan accounting:generate-reports --year=2026 --month=7 --with-suggestions` – builds accounting reports and optionally refreshes AI suggestions.
+- `php artisan accounting:close-year --year=2026` – year-end close to retained earnings.
+
+Scheduled in `routes/console.php` (monthly report generation with suggestions, yearly close).
+
+### API endpoints (auth: bearer token)
+
+| Method | Endpoint | Access |
+|--------|----------|--------|
+| POST | `/api/orders/{orderId}/return` | employee/owner |
+| GET | `/api/accounting-issues` | employee/owner |
+| GET | `/api/accounts`, `/api/journal-entries`, `/api/reports/*` | owner |
+| POST | `/api/reports/ai-suggestions` | owner |
+
+## Employee registration
+
+`POST /api/employees` (owner only) registers an employee with the following required data:
+
+- `name`, `email` (unique), `phone` (required).
+- Identification — provide **either** `nida_number` **or** `voting_id_number` (at least one).
+- `guarantors[]` — the Wadhamini form. At least one guarantor (`full_name`, `phone`, `relationship` required, `address` optional).
+- `attachments[]` + parallel `document_types[]` (`contract`, `background_check`, `other`) — contracts and background-check documents. One multi-file field, PDF/JPG/PNG/DOC/DOCX, up to 20MB each.
+
+Supporting endpoints (owner only):
+
+| Method | Endpoint |
+|--------|----------|
+| GET/POST | `/api/employees/{user}/documents` |
+| DELETE | `/api/employees/{user}/documents/{document}` |
+| GET | `/api/employees/{user}/documents/{document}/download` |
+
+### File storage (local + Laravel Cloud)
+
+Files are stored through Laravel's filesystem abstraction on the **default disk** (`FILESYSTEM_DISK`):
+
+- **Local development**: `FILESYSTEM_DISK=local` — files land in `storage/app/employee-documents`.
+- **Hosted on Laravel Cloud**: provision a storage bucket; Laravel Cloud injects the `AWS_BUCKET`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_DEFAULT_REGION` variables. Set `FILESYSTEM_DISK=s3` (Cloud does this automatically for buckets) and files are stored on the cloud bucket the same way (see the existing `s3` disk in `config/filesystems.php`).
+
+No code changes are needed between environments — downloads stream through `/api/employees/{user}/documents/{document}/download`, so file URLs never leak backend paths.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
