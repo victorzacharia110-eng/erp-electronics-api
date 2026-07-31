@@ -7,6 +7,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE orders MODIFY status ENUM('pending', 'pending_payment', 'inactive', 'paid', 'processing', 'shipped', 'delivered', 'cancelled') NOT NULL DEFAULT 'pending_payment'");
+            return;
+        }
+
         DB::unprepared('PRAGMA foreign_keys = OFF');
 
         DB::statement("CREATE TABLE _orders_inactive (
@@ -41,6 +46,11 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE orders MODIFY status ENUM('pending', 'pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled') NOT NULL DEFAULT 'pending_payment'");
+            return;
+        }
+
         DB::unprepared('PRAGMA foreign_keys = OFF');
 
         DB::statement("CREATE TABLE _orders_inactive (
