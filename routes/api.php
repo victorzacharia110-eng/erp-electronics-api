@@ -228,6 +228,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/suppliers/{id}', [SupplierController::class, 'update']);
     Route::delete('/suppliers/{id}', [SupplierController::class, 'destroy']);
 
+    // Supplier documents (contract, BRELA, TIN, VAT, licenses — Tanzanian legal docs)
+    Route::get('/suppliers/{id}/documents', [SupplierController::class, 'indexDocuments']);
+    Route::post('/suppliers/{id}/documents', [SupplierController::class, 'storeDocumentsForSupplier']);
+    Route::delete('/suppliers/{id}/documents/{document}', [SupplierController::class, 'destroyDocument']);
+    Route::get('/suppliers/{id}/documents/{document}/download', [SupplierController::class, 'downloadDocument']);
+
     // Stock alerts (owner)
     Route::get('/stock-alerts', [StockAlertController::class, 'index']);
     Route::get('/stock-alerts/count', [StockAlertController::class, 'count']);
