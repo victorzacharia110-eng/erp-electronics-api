@@ -67,6 +67,18 @@ Scheduled in `routes/console.php` (monthly report generation with suggestions, y
 | GET | `/api/accounts`, `/api/journal-entries`, `/api/reports/*` | owner |
 | POST | `/api/reports/ai-suggestions` | owner |
 
+## Rate limiting
+
+Named limiters are registered in `AppServiceProvider` and enabled via `throttleApi()` in `bootstrap/app.php`:
+
+| Limiter | Limit | Applied to |
+|---------|-------|------------|
+| `api` | 120/min (by user id, else IP) | all `/api/*` routes |
+| `login` | 5/min (by IP) | `POST /auth/login` |
+| `register` | 3/min and 10/day (by IP) | `POST /auth/register` |
+
+Exceeding a limit returns HTTP 429 with `X-RateLimit-*` headers. Covered by `tests/Feature/RateLimitingTest.php`. Run the suite with `php artisan test`.
+
 ## Employee registration
 
 `POST /api/employees` (owner only) registers an employee with the following required data:
