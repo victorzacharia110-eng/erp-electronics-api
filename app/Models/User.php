@@ -6,6 +6,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -94,6 +95,18 @@ class User extends Authenticatable
     public function branches(): HasMany
     {
         return $this->hasMany(Branch::class, 'owner_id');
+    }
+
+    public function ownedBusiness(): HasOne
+    {
+        return $this->hasOne(Business::class, 'owner_id');
+    }
+
+    public function businesses(): BelongsToMany
+    {
+        return $this->belongsToMany(Business::class, 'business_user')
+            ->withPivot('role')
+            ->withTimestamps();
     }
 
     public function isCustomer(): bool

@@ -31,7 +31,9 @@ class AccountingIssuesController extends Controller
         $isOwner = $user->isOwner();
 
         if ($isOwner) {
-            $owner = $user;
+            $tenantOwnerId = \App\Support\Tenant::ownerId($request);
+
+            $owner = $tenantOwnerId ? \App\Models\User::findOrFail($tenantOwnerId) : $user;
             $branchId = null;
         } else {
             $owner = $user->employeeProfile?->branch?->owner ?? $user;

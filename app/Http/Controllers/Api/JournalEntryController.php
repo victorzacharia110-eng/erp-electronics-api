@@ -15,7 +15,7 @@ class JournalEntryController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = JournalEntry::where('owner_id', $user->id)
+        $query = JournalEntry::where('owner_id', $request->ownerId())
             ->with(['lines.account', 'preparer', 'poster', 'voidedBy']);
 
         if ($status = $request->query('status')) {
@@ -60,7 +60,7 @@ class JournalEntryController extends Controller
 
         foreach ($validated['lines'] as $line) {
             $account = Account::where('id', $line['account_id'])
-                ->where('owner_id', $user->id)
+                ->where('owner_id', $request->ownerId())
                 ->first();
             if (!$account) {
                 return response()->json(['message' => 'Account not found'], 422);
@@ -82,7 +82,7 @@ class JournalEntryController extends Controller
 
         try {
             $entry = JournalEntry::create([
-                'owner_id' => $user->id,
+                'owner_id' => $request->ownerId(),
                 'reference' => JournalEntry::generateReference($user->id),
                 'date' => $validated['date'],
                 'description' => $validated['description'],
@@ -113,7 +113,7 @@ class JournalEntryController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $entry = JournalEntry::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->with(['lines.account', 'preparer', 'poster', 'voidedBy'])
             ->firstOrFail();
 
@@ -125,7 +125,7 @@ class JournalEntryController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $entry = JournalEntry::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'draft')
             ->firstOrFail();
 
@@ -160,7 +160,7 @@ class JournalEntryController extends Controller
 
                 foreach ($validated['lines'] as $line) {
                     $account = Account::where('id', $line['account_id'])
-                        ->where('owner_id', $user->id)
+                        ->where('owner_id', $request->ownerId())
                         ->first();
                     if (!$account) {
                         DB::rollBack();
@@ -194,7 +194,7 @@ class JournalEntryController extends Controller
     public function post(Request $request, string $id): JsonResponse
     {
         $entry = JournalEntry::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'draft')
             ->firstOrFail();
 
@@ -231,7 +231,7 @@ class JournalEntryController extends Controller
         ]);
 
         $entry = JournalEntry::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'posted')
             ->firstOrFail();
 
@@ -255,7 +255,7 @@ class JournalEntryController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $entry = JournalEntry::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'draft')
             ->firstOrFail();
 

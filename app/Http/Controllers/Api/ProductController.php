@@ -17,6 +17,10 @@ class ProductController extends Controller
     {
         $query = Product::with(['category', 'variants.inventory']);
 
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $query->where('owner_id', $business->owner_id);
+        }
+
         if (!$request->boolean('all')) {
             $query->where('is_active', true);
         }
@@ -43,24 +47,32 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
-    public function show(string $identifier): JsonResponse
+    public function show(Request $request, string $identifier): JsonResponse
     {
-        $product = Product::with(['category', 'variants.inventory'])
+        $query = Product::with(['category', 'variants.inventory'])
             ->where('slug', $identifier)
             ->orWhere('id', $identifier)
-            ->orWhere('sku', $identifier)
-            ->firstOrFail();
+            ->orWhere('sku', $identifier);
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $query->where('owner_id', $business->owner_id);
+        }
+
+        $product = $query->firstOrFail();
 
         return response()->json($product);
     }
 
-    public function featured(): JsonResponse
+    public function featured(Request $request): JsonResponse
     {
-        $products = Product::with(['category', 'variants.inventory'])
-            ->where('is_active', true)
-            ->inRandomOrder()
-            ->limit(8)
-            ->get();
+        $query = Product::with(['category', 'variants.inventory'])
+            ->where('is_active', true);
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $query->where('owner_id', $business->owner_id);
+        }
+
+        $products = $query->inRandomOrder()->limit(8)->get();
 
         return response()->json($products);
     }
@@ -102,6 +114,8 @@ class ProductController extends Controller
 
         $imagePath = $this->handleImage($request);
 
+        $ownerId = $request->ownerId();
+
         $product = Product::create([
             'name' => $validated['name'],
             'sku' => $validated['sku'],
@@ -112,6 +126,7 @@ class ProductController extends Controller
             'brand' => $validated['brand'] ?? null,
             'image' => $imagePath,
             'is_active' => $validated['is_active'] ?? true,
+            'owner_id' => $ownerId,
         ]);
 
         if (!empty($validated['variants'])) {
@@ -140,7 +155,7 @@ class ProductController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $product = Product::findOrFail($id);
+        $product = Product::where('owner_id', $request->ownerId())->findOrFail($id);
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -195,7 +210,7 @@ class ProductController extends Controller
 
     public function destroy(Request $request, string $id): JsonResponse
     {
-        $product = Product::findOrFail($id);
+        $product = Product::where('owner_id', $request->ownerId())->findOrFail($id);
         $product->delete();
 
         return response()->json(['message' => 'Product deleted']);
@@ -203,7 +218,8 @@ class ProductController extends Controller
 
     public function manage(Request $request): JsonResponse
     {
-        $query = Product::with(['category', 'variants.inventory']);
+        $query = Product::with(['category', 'variants.inventory'])
+            ->where('owner_id', $request->ownerId());
 
         $search = $request->query('search');
         if ($search) {

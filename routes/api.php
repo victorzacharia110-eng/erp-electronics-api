@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\BusinessController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CommissionController;
@@ -38,6 +39,10 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/featured', [ProductController::class, 'featured']);
 Route::get('/products/{slug}', [ProductController::class, 'show']);
 
+// Public business directory (storefront homepage) + per-business storefronts
+Route::get('/businesses', [BusinessController::class, 'index']);
+Route::get('/businesses/by-slug/{slug}', [BusinessController::class, 'show']);
+
 Route::get('/categories', [CategoryController::class, 'index']);
 Route::get('/categories/{slug}', [CategoryController::class, 'show']);
 
@@ -63,6 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/profile', [AuthController::class, 'profile']);
     Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+
+    // Businesses an owner/co-owner can manage (multi-business + co-owner support)
+    Route::get('/businesses/mine', [BusinessController::class, 'mine']);
 
     // Employee management (owner only)
     Route::middleware('owner')->group(function () {

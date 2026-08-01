@@ -12,15 +12,25 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EmployeeController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $employees = User::where('role', 'employee')
-            ->with(['employeeProfile.branch:id,name,city', 'guarantors'])
-            ->select('id', 'name', 'email', 'phone', 'is_active', 'created_at', 'password_changed_at')
+        $query = User::where('role', 'employee')
+            ->with(['employeeProfile.branch:id,name,city', 'guarantors']);
+
+        if ($ownerId = $request->ownerId()) {
+            $query->where(function ($q) use ($ownerId) {
+                $q->whereHas('employeeProfile.branch', function ($qb) use ($ownerId) {
+                    $qb->where('owner_id', $ownerId);
+                })->orWhereDoesntHave('employeeProfile.branch');
+            });
+        }
+
+        $employees = $query->select('id', 'name', 'email', 'phone', 'is_active', 'created_at', 'password_changed_at')
             ->withCount(['documents', 'guarantors'])
             ->orderBy('created_at', 'desc')
             ->get()
@@ -43,7 +53,7 @@ class EmployeeController extends Controller
             'phone' => 'required|string|max:20',
             'nida_number' => 'nullable|string|max:20|required_without:voting_id_number',
             'voting_id_number' => 'nullable|string|max:30|required_without:nida_number',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('owner_id', $request->ownerId())],
             'commission_rate' => 'nullable|numeric|min:0|max:100',
             'guarantors' => 'required|array|min:1',
             'guarantors.*.full_name' => 'required|string|max:255',
@@ -137,7 +147,7 @@ class EmployeeController extends Controller
             'phone' => 'required|string|max:20',
             'nida_number' => 'nullable|string|max:20|required_without:voting_id_number',
             'voting_id_number' => 'nullable|string|max:30|required_without:nida_number',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('owner_id', $request->ownerId())],
             'position' => 'nullable|string|max:255',
             'department' => 'nullable|string|max:255',
             'commission_rate' => 'nullable|numeric|min:0|max:100',
@@ -304,7 +314,7 @@ class EmployeeController extends Controller
     public function assignBranch(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('owner_id', $request->ownerId())],
         ]);
 
         $profile = $user->employeeProfile;

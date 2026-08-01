@@ -21,6 +21,7 @@ class Product extends Model
         'image',
         'images',
         'is_active',
+        'owner_id',
     ];
 
     protected function casts(): array

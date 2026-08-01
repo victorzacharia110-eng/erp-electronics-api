@@ -11,7 +11,7 @@ class BranchController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $branches = Branch::where('owner_id', $request->user()->id)
+        $branches = Branch::where('owner_id', $request->ownerId())
             ->withCount(['orders', 'employees'])
             ->orderBy('is_default', 'desc')
             ->orderBy('name')
@@ -32,10 +32,10 @@ class BranchController extends Controller
             'name.max' => 'Branch name is too long.',
         ]);
 
-        $hasNoBranches = Branch::where('owner_id', $request->user()->id)->count() === 0;
+        $hasNoBranches = Branch::where('owner_id', $request->ownerId())->count() === 0;
 
         $branch = Branch::create([
-            'owner_id' => $request->user()->id,
+            'owner_id' => $request->ownerId(),
             'name' => $validated['name'],
             'city' => $validated['city'] ?? null,
             'address' => $validated['address'] ?? null,
@@ -50,9 +50,9 @@ class BranchController extends Controller
         ], 201);
     }
 
-    public function show(Branch $branch): JsonResponse
+    public function show(Request $request, Branch $branch): JsonResponse
     {
-        if ($branch->owner_id !== request()->user()->id) {
+        if ($branch->owner_id !== $request->ownerId()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
@@ -63,7 +63,7 @@ class BranchController extends Controller
 
     public function update(Request $request, Branch $branch): JsonResponse
     {
-        if ($branch->owner_id !== $request->user()->id) {
+        if ($branch->owner_id !== $request->ownerId()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
@@ -83,9 +83,9 @@ class BranchController extends Controller
         ]);
     }
 
-    public function setDefault(Branch $branch): JsonResponse
+    public function setDefault(Request $request, Branch $branch): JsonResponse
     {
-        if ($branch->owner_id !== request()->user()->id) {
+        if ($branch->owner_id !== $request->ownerId()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
@@ -98,9 +98,9 @@ class BranchController extends Controller
         return response()->json(['message' => 'Default branch set.']);
     }
 
-    public function destroy(Branch $branch): JsonResponse
+    public function destroy(Request $request, Branch $branch): JsonResponse
     {
-        if ($branch->owner_id !== request()->user()->id) {
+        if ($branch->owner_id !== $request->ownerId()) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 

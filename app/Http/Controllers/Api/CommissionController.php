@@ -16,7 +16,7 @@ class CommissionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = Commission::where('owner_id', $user->id)
+        $query = Commission::where('owner_id', $request->ownerId())
             ->with(['employee', 'order']);
 
         if ($employeeId = $request->query('employee_id')) {
@@ -75,22 +75,21 @@ class CommissionController extends Controller
 
     public function pay(Request $request, string $id): JsonResponse
     {
-        $user = $request->user();
         $commission = Commission::where('id', $id)
-            ->where('owner_id', $user->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'pending')
             ->firstOrFail();
 
         DB::beginTransaction();
 
         try {
-            $cashAccount = Account::where('owner_id', $user->id)->where('code', '1020')->first();
-            $commissionExpense = Account::where('owner_id', $user->id)->where('code', '5050')->first();
+            $cashAccount = Account::where('owner_id', $request->ownerId())->where('code', '1020')->first();
+            $commissionExpense = Account::where('owner_id', $request->ownerId())->where('code', '5050')->first();
 
             $journalEntry = null;
             if ($cashAccount && $commissionExpense) {
                 $journalEntry = JournalEntry::create([
-                    'owner_id' => $user->id,
+                    'owner_id' => $request->ownerId(),
                     'reference' => JournalEntry::generateReference($user->id),
                     'date' => now()->toDateString(),
                     'description' => "Commission payout to {$commission->employee->name}",
@@ -137,7 +136,7 @@ class CommissionController extends Controller
     public function payAll(Request $request): JsonResponse
     {
         $user = $request->user();
-        $pending = Commission::where('owner_id', $user->id)->where('status', 'pending')->get();
+        $pending = Commission::where('owner_id', $request->ownerId())->where('status', 'pending')->get();
 
         if ($pending->isEmpty()) {
             return response()->json(['message' => 'No pending commissions']);
@@ -147,13 +146,13 @@ class CommissionController extends Controller
 
         try {
             $total = $pending->sum('commission_amount');
-            $cashAccount = Account::where('owner_id', $user->id)->where('code', '1020')->first();
-            $commissionExpense = Account::where('owner_id', $user->id)->where('code', '5050')->first();
+            $cashAccount = Account::where('owner_id', $request->ownerId())->where('code', '1020')->first();
+            $commissionExpense = Account::where('owner_id', $request->ownerId())->where('code', '5050')->first();
 
             $journalEntry = null;
             if ($cashAccount && $commissionExpense) {
                 $journalEntry = JournalEntry::create([
-                    'owner_id' => $user->id,
+                    'owner_id' => $request->ownerId(),
                     'reference' => JournalEntry::generateReference($user->id),
                     'date' => now()->toDateString(),
                     'description' => "Bulk commission payout ({$pending->count()} employees)",

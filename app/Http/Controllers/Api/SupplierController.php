@@ -22,7 +22,7 @@ class SupplierController extends Controller
     private function supplierForOwner(Request $request, string $id): Supplier
     {
         return Supplier::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
     }
     public function index(Request $request): JsonResponse
@@ -44,7 +44,7 @@ class SupplierController extends Controller
 
     public function all(Request $request): JsonResponse
     {
-        $suppliers = Supplier::where('owner_id', $request->user()->id)
+        $suppliers = Supplier::where('owner_id', $request->ownerId())
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
@@ -72,7 +72,7 @@ class SupplierController extends Controller
 
         $supplier = Supplier::create([
             ...$validated,
-            'owner_id' => $request->user()->id,
+            'owner_id' => $request->ownerId(),
         ]);
 
         $storedPaths = [];
@@ -92,7 +92,7 @@ class SupplierController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $supplier = Supplier::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->withCount('purchaseOrders')
             ->with('purchaseOrders', 'documents')
             ->firstOrFail();
@@ -103,7 +103,7 @@ class SupplierController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $supplier = Supplier::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
 
         $validated = $request->validate([
@@ -130,7 +130,7 @@ class SupplierController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $supplier = Supplier::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
 
         if ($supplier->purchaseOrders()->count() > 0) {

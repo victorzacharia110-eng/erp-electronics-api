@@ -8,9 +8,10 @@ use Illuminate\Http\Request;
 
 class ShippingController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return ShippingRule::orderBy('from_city')->orderBy('to_city')->get();
+        return ShippingRule::where('owner_id', $request->ownerId())
+            ->orderBy('from_city')->orderBy('to_city')->get();
     }
 
     public function calculate(Request $request)
@@ -23,8 +24,13 @@ class ShippingController extends Controller
 
         $subtotal = (float) $request->subtotal;
 
-        $rules = ShippingRule::where('enabled', true)
-            ->where(function ($q) use ($request) {
+        $rules = ShippingRule::where('enabled', true);
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $rules->where('owner_id', $business->owner_id);
+        }
+
+        $rules = $rules->where(function ($q) use ($request) {
                 $q->where(function ($q2) use ($request) {
                     $q2->whereRaw('LOWER(from_city) = ?', [strtolower($request->from_city)])
                        ->whereRaw('LOWER(to_city) = ?', [strtolower($request->to_city)]);
@@ -83,6 +89,7 @@ class ShippingController extends Controller
 
         $data['enabled'] = $data['enabled'] ?? true;
         $data['value_rules'] = $this->cleanValueRules($data['value_rules'] ?? null);
+        $data['owner_id'] = $request->ownerId();
 
         $rule = ShippingRule::create($data);
 
@@ -91,7 +98,7 @@ class ShippingController extends Controller
 
     public function update(Request $request, int $id)
     {
-        $rule = ShippingRule::findOrFail($id);
+        $rule = ShippingRule::where('owner_id', $request->ownerId())->findOrFail($id);
 
         $data = $request->validate([
             'name'        => 'sometimes|string|max:255',
@@ -114,9 +121,9 @@ class ShippingController extends Controller
         return response()->json($rule);
     }
 
-    public function destroy(int $id)
+    public function destroy(Request $request, int $id)
     {
-        $rule = ShippingRule::findOrFail($id);
+        $rule = ShippingRule::where('owner_id', $request->ownerId())->findOrFail($id);
         $rule->delete();
 
         return response()->json(['message' => 'Deleted']);

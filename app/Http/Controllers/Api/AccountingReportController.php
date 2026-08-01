@@ -189,6 +189,12 @@ class AccountingReportController extends Controller
     private function resolveOwner(User $user): User
     {
         if ($user->isOwner()) {
+            $tenantOwnerId = \App\Support\Tenant::ownerId(request());
+
+            if ($tenantOwnerId) {
+                return User::findOrFail($tenantOwnerId);
+            }
+
             return $user;
         }
 

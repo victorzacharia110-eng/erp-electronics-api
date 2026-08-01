@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class OrderController extends Controller
 {
@@ -38,6 +39,14 @@ class OrderController extends Controller
     {
         $query = Order::with(['items.productVariant.product', 'payments', 'shippingAddress', 'handler', 'user', 'branch'])
             ->where('status', '!=', 'pending_payment');
+
+        if ($ownerId = $request->ownerId()) {
+            $query->where(function ($q) use ($ownerId) {
+                $q->whereHas('branch', function ($qb) use ($ownerId) {
+                    $qb->where('owner_id', $ownerId);
+                })->orWhereNull('branch_id');
+            });
+        }
 
         $status = $request->query('status');
         if ($status) {
@@ -72,7 +81,7 @@ class OrderController extends Controller
             'notes' => 'nullable|string|max:500',
             'delivery_required' => 'nullable|boolean',
             'shipping_cost' => 'nullable|numeric|min:0',
-            'branch_id' => 'nullable|exists:branches,id',
+            'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('owner_id', $request->ownerId())],
         ]);
 
         $user = $request->user();

@@ -39,11 +39,17 @@ class SettingsController extends Controller
         ]);
     }
 
-    public function branding(): JsonResponse
+    public function branding(Request $request): JsonResponse
     {
-        $profile = OwnerProfile::where('is_active', true)
-            ->with('user')
-            ->first();
+        $profile = null;
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $profile = OwnerProfile::where('user_id', $business->owner_id)->with('user')->first();
+        }
+
+        if (!$profile) {
+            $profile = OwnerProfile::where('is_active', true)->with('user')->first();
+        }
 
         if (!$profile) {
             return response()->json([

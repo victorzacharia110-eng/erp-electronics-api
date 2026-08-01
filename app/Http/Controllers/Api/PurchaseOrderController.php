@@ -20,7 +20,7 @@ class PurchaseOrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = PurchaseOrder::where('owner_id', $user->id)->with(['items.productVariant.product', 'supplier']);
+        $query = PurchaseOrder::where('owner_id', $request->ownerId())->with(['items.productVariant.product', 'supplier']);
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -60,7 +60,7 @@ class PurchaseOrderController extends Controller
             }
 
             $po = PurchaseOrder::create([
-                'owner_id' => $user->id,
+                'owner_id' => $request->ownerId(),
                 'supplier_id' => $validated['supplier_id'] ?? null,
                 'po_number' => PurchaseOrder::generatePONumber($user->id),
                 'supplier_name' => $supplierName,
@@ -93,7 +93,7 @@ class PurchaseOrderController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $po = PurchaseOrder::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->with('items.productVariant.product')
             ->firstOrFail();
 
@@ -104,7 +104,7 @@ class PurchaseOrderController extends Controller
     {
         $user = $request->user();
         $po = PurchaseOrder::where('id', $id)
-            ->where('owner_id', $user->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'ordered')
             ->with('items')
             ->firstOrFail();
@@ -127,7 +127,7 @@ class PurchaseOrderController extends Controller
                 }
 
                 InventoryTransaction::create([
-                    'owner_id' => $user->id,
+                    'owner_id' => $request->ownerId(),
                     'product_variant_id' => $item->product_variant_id,
                     'type' => 'purchase',
                     'quantity_change' => $item->quantity,
@@ -142,13 +142,13 @@ class PurchaseOrderController extends Controller
                 $item->update(['quantity_received' => $item->quantity]);
             }
 
-            $cashAccount = Account::where('owner_id', $user->id)->where('code', '1020')->first();
-            $inventoryAccount = Account::where('owner_id', $user->id)->where('code', '1200')->first();
+            $cashAccount = Account::where('owner_id', $request->ownerId())->where('code', '1020')->first();
+            $inventoryAccount = Account::where('owner_id', $request->ownerId())->where('code', '1200')->first();
 
             $journalEntry = null;
             if ($cashAccount && $inventoryAccount) {
                 $journalEntry = JournalEntry::create([
-                    'owner_id' => $user->id,
+                    'owner_id' => $request->ownerId(),
                     'reference' => JournalEntry::generateReference($user->id),
                     'date' => now()->toDateString(),
                     'description' => "Inventory purchase from {$po->supplier_name} ({$po->po_number})",
@@ -197,7 +197,7 @@ class PurchaseOrderController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $po = PurchaseOrder::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'draft')
             ->firstOrFail();
 

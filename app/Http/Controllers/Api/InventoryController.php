@@ -25,6 +25,10 @@ class InventoryController extends Controller
         $query = Inventory::with(['productVariant.product'])
             ->whereHas('productVariant', fn($q) => $q->where('is_active', true));
 
+        if ($ownerId = $request->ownerId()) {
+            $query->whereHas('productVariant.product', fn($q) => $q->where('owner_id', $ownerId));
+        }
+
         if ($search = $request->query('search')) {
             $query->whereHas('productVariant', function ($q) use ($search) {
                 $q->where('sku', 'like', "%{$search}%")
@@ -71,7 +75,8 @@ class InventoryController extends Controller
         DB::beginTransaction();
 
         try {
-            $owner = $user->isOwner() ? $user : ($user->employeeProfile?->branch?->owner ?? $user);
+            $tenantOwnerId = \App\Support\Tenant::ownerId($request);
+            $owner = $tenantOwnerId ? \App\Models\User::find($tenantOwnerId) : ($user->employeeProfile?->branch?->owner ?? $user);
 
             $inventory->update(['quantity_on_hand' => $newQty]);
 
@@ -115,7 +120,7 @@ class InventoryController extends Controller
     public function transactions(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = InventoryTransaction::where('owner_id', $user->id)
+        $query = InventoryTransaction::where('owner_id', $request->ownerId())
             ->with(['productVariant.product', 'creator']);
 
         if ($variantId = $request->query('product_variant_id')) {
@@ -132,9 +137,9 @@ class InventoryController extends Controller
 
     public function lowStock(Request $request): JsonResponse
     {
-        $user = $request->user();
         $lowStock = Inventory::with(['productVariant.product'])
             ->whereHas('productVariant', fn($q) => $q->where('is_active', true))
+            ->when($request->ownerId(), fn($q, $oid) => $q->whereHas('productVariant.product', fn($qb) => $qb->where('owner_id', $oid)))
             ->whereColumn('quantity_on_hand', '<=', 'reorder_level')
             ->orderBy('quantity_on_hand', 'asc')
             ->get();
@@ -149,13 +154,17 @@ class InventoryController extends Controller
 
     public function dashboard(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $ownerScope = fn($q) => $q->when($request->ownerId(), function ($qb) use ($request) {
+            $qb->whereHas('productVariant.product', fn($qc) => $qc->where('owner_id', $request->ownerId()));
+        });
 
-        $totalItems = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))->count();
-        $totalStock = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))->sum('quantity_on_hand');
+        $totalItems = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))->tap($ownerScope)->count();
+        $totalStock = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))->tap($ownerScope)->sum('quantity_on_hand');
         $lowStockCount = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))
+            ->tap($ownerScope)
             ->whereColumn('quantity_on_hand', '<=', 'reorder_level')->count();
         $stockValue = Inventory::whereHas('productVariant', fn($q) => $q->where('is_active', true))
+            ->tap($ownerScope)
             ->join('product_variants', 'inventory.product_variant_id', '=', 'product_variants.id')
             ->selectRaw('SUM(inventory.quantity_on_hand * product_variants.cost_price) as total')
             ->first()->total ?? 0;

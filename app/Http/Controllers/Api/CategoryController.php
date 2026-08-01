@@ -8,10 +8,16 @@ use Illuminate\Http\JsonResponse;
 
 class CategoryController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $categories = Category::withCount(['products' => function ($query) {
-            $query->where('is_active', true);
+        $query = Category::query();
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $query->where('owner_id', $business->owner_id);
+        }
+
+        $categories = $query->withCount(['products' => function ($q) {
+            $q->where('is_active', true);
         }])
             ->with(['children' => function ($query) {
                 $query->where('is_active', true);
@@ -28,10 +34,20 @@ class CategoryController extends Controller
         return response()->json($categories);
     }
 
-    public function show(string $slug): JsonResponse
+    public function show(Request $request, string $slug): JsonResponse
     {
-        $category = Category::with(['products' => function ($query) {
-            $query->where('is_active', true)->with('variants.inventory');
+        $query = Category::query();
+
+        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+            $query->where('owner_id', $business->owner_id);
+        }
+
+        $category = $query->with(['products' => function ($q) use ($request) {
+            $q->where('is_active', true)->with('variants.inventory');
+
+            if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+                $q->where('owner_id', $business->owner_id);
+            }
         }])
             ->where('slug', $slug)
             ->firstOrFail();

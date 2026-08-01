@@ -20,9 +20,10 @@ class AnalyticsController extends Controller
         $months = (int) $request->query('months', 12);
         $startDate = Carbon::now()->subMonths($months - 1)->startOfMonth();
         $endDate = Carbon::now()->endOfMonth();
+        $ownerId = $request->ownerId();
 
         $monthlySales = Order::where('orders.status', 'paid')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->select(
                 DB::raw("strftime('%Y-%m', orders.created_at) as month"),
                 DB::raw('COUNT(*) as order_count'),
@@ -35,7 +36,7 @@ class AnalyticsController extends Controller
             ->get();
 
         $monthlyItems = Order::where('orders.status', 'paid')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->select(
                 DB::raw("strftime('%Y-%m', orders.created_at) as month"),
@@ -47,7 +48,7 @@ class AnalyticsController extends Controller
             ->get();
 
         $monthlyProfit = Order::where('orders.status', 'paid')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->join('product_variants', 'order_items.product_variant_id', '=', 'product_variants.id')
             ->select(
@@ -61,7 +62,7 @@ class AnalyticsController extends Controller
             ->get();
 
         $monthlyCancelled = Order::where('orders.status', 'cancelled')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->select(
                 DB::raw("strftime('%Y-%m', orders.created_at) as month"),
                 DB::raw('COUNT(*) as cancelled_count'),
@@ -72,7 +73,7 @@ class AnalyticsController extends Controller
             ->get();
 
         $categoryBreakdown = Order::where('orders.status', 'paid')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->join('product_variants', 'order_items.product_variant_id', '=', 'product_variants.id')
             ->join('products', 'product_variants.product_id', '=', 'products.id')
@@ -87,7 +88,7 @@ class AnalyticsController extends Controller
             ->get();
 
         $topProducts = Order::where('orders.status', 'paid')
-            ->whereBetween('orders.created_at', [$startDate, $endDate])
+            ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->join('product_variants', 'order_items.product_variant_id', '=', 'product_variants.id')
             ->join('products', 'product_variants.product_id', '=', 'products.id')

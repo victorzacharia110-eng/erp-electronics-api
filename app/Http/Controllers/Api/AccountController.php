@@ -12,7 +12,7 @@ class AccountController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = Account::where('owner_id', $user->id)->with('parent');
+        $query = Account::where('owner_id', $request->ownerId())->with('parent');
 
         if ($type = $request->query('type')) {
             $query->where('type', $type);
@@ -34,7 +34,7 @@ class AccountController extends Controller
     public function tree(Request $request): JsonResponse
     {
         $user = $request->user();
-        $accounts = Account::where('owner_id', $user->id)
+        $accounts = Account::where('owner_id', $request->ownerId())
             ->whereNull('parent_id')
             ->with(['children' => function ($q) {
                 $q->orderBy('code');
@@ -65,7 +65,7 @@ class AccountController extends Controller
 
         $user = $request->user();
 
-        $exists = Account::where('owner_id', $user->id)
+        $exists = Account::where('owner_id', $request->ownerId())
             ->where('code', $validated['code'])
             ->exists();
 
@@ -75,13 +75,13 @@ class AccountController extends Controller
 
         if ($validated['parent_id']) {
             $parent = Account::where('id', $validated['parent_id'])
-                ->where('owner_id', $user->id)
+                ->where('owner_id', $request->ownerId())
                 ->firstOrFail();
         }
 
         $account = Account::create([
             ...$validated,
-            'owner_id' => $user->id,
+            'owner_id' => $request->ownerId(),
         ]);
 
         $account->append('balance', 'formatted_code');
@@ -92,7 +92,7 @@ class AccountController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $account = Account::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
 
         if ($account->is_system) {
@@ -114,7 +114,7 @@ class AccountController extends Controller
     public function destroy(Request $request, string $id): JsonResponse
     {
         $account = Account::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
 
         if ($account->is_system) {

@@ -17,6 +17,7 @@ class Category extends Model
         'image',
         'is_active',
         'sort_order',
+        'owner_id',
     ];
 
     protected function casts(): array

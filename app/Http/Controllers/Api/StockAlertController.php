@@ -12,7 +12,7 @@ class StockAlertController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = StockAlert::where('owner_id', $user->id)
+        $query = StockAlert::where('owner_id', $request->ownerId())
             ->with('productVariant.product');
 
         if ($status = $request->query('status')) {
@@ -29,7 +29,7 @@ class StockAlertController extends Controller
 
     public function count(Request $request): JsonResponse
     {
-        $count = StockAlert::where('owner_id', $request->user()->id)
+        $count = StockAlert::where('owner_id', $request->ownerId())
             ->where('status', 'active')
             ->count();
 
@@ -39,7 +39,7 @@ class StockAlertController extends Controller
     public function acknowledge(Request $request, string $id): JsonResponse
     {
         $alert = StockAlert::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->where('status', 'active')
             ->firstOrFail();
 
@@ -50,7 +50,7 @@ class StockAlertController extends Controller
     public function resolve(Request $request, string $id): JsonResponse
     {
         $alert = StockAlert::where('id', $id)
-            ->where('owner_id', $request->user()->id)
+            ->where('owner_id', $request->ownerId())
             ->firstOrFail();
 
         $alert->update(['status' => 'resolved']);
