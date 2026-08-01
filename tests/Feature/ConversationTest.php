@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Conversation;
+use App\Models\EmployeeProfile;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class ConversationTest extends TestCase
@@ -132,5 +134,115 @@ class ConversationTest extends TestCase
 
         $this->withToken($token)->getJson('/api/conversations')->assertOk()
             ->assertJsonCount(0, 'data');
+    }
+
+    public function test_owner_can_start_conversation_with_their_employee(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $branch = Branch::create(['owner_id' => $owner->id, 'name' => 'Main Store']);
+        $employee = User::factory()->create(['role' => 'employee']);
+        EmployeeProfile::create([
+            'user_id' => $employee->id,
+            'branch_id' => $branch->id,
+            'position' => 'Cashier',
+            'employee_code' => 'EMP' . Str::random(4),
+        ]);
+
+        $token = $owner->createToken('test')->plainTextToken;
+
+        $contacts = $this->withToken($token)->getJson('/api/conversations/contacts');
+        $contacts->assertOk();
+        $this->assertEquals('employee', $contacts->json('data.0.role'));
+        $this->assertEquals($employee->id, $contacts->json('data.0.id'));
+
+        $response = $this->withToken($token)->postJson('/api/conversations', [
+            'subject' => 'Shift notes',
+            'message' => 'Please check today\'s closing.',
+            'type' => 'owner_employee',
+            'employee_id' => $employee->id,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('conversations', [
+            'owner_id' => $owner->id,
+            'employee_id' => $employee->id,
+            'type' => 'owner_employee',
+        ]);
+    }
+
+    public function test_owner_cannot_message_another_business_employee(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $otherOwner = User::factory()->create(['role' => 'owner']);
+        $otherBranch = Branch::create(['owner_id' => $otherOwner->id, 'name' => 'Other Store']);
+        $otherEmployee = User::factory()->create(['role' => 'employee']);
+        EmployeeProfile::create([
+            'user_id' => $otherEmployee->id,
+            'branch_id' => $otherBranch->id,
+            'position' => 'Manager',
+            'employee_code' => 'EMP' . Str::random(4),
+        ]);
+
+        $token = $owner->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->postJson('/api/conversations', [
+            'subject' => 'Poach',
+            'message' => 'Work for me?',
+            'type' => 'owner_employee',
+            'employee_id' => $otherEmployee->id,
+        ])->assertForbidden();
+
+        $this->assertDatabaseCount('conversations', 0);
+    }
+
+    public function test_employee_can_start_conversation_with_their_owner(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $branch = Branch::create(['owner_id' => $owner->id, 'name' => 'Main Store']);
+        $employee = User::factory()->create(['role' => 'employee']);
+        EmployeeProfile::create([
+            'user_id' => $employee->id,
+            'branch_id' => $branch->id,
+            'position' => 'Cashier',
+            'employee_code' => 'EMP' . Str::random(4),
+        ]);
+
+        $token = $employee->createToken('test')->plainTextToken;
+
+        $contacts = $this->withToken($token)->getJson('/api/conversations/contacts');
+        $contacts->assertOk();
+        $this->assertCount(1, $contacts->json('data'));
+        $this->assertEquals('owner', $contacts->json('data.0.role'));
+        $this->assertEquals($owner->id, $contacts->json('data.0.id'));
+
+        $response = $this->withToken($token)->postJson('/api/conversations', [
+            'subject' => 'Need permission',
+            'message' => 'Can I close the store early?',
+            'type' => 'owner_employee',
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('conversations', [
+            'owner_id' => $owner->id,
+            'employee_id' => $employee->id,
+            'type' => 'owner_employee',
+        ]);
+
+        $this->withToken($token)->getJson('/api/conversations')->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
+    public function test_employee_without_branch_cannot_start_conversation(): void
+    {
+        $employee = User::factory()->create(['role' => 'employee']);
+        $token = $employee->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->postJson('/api/conversations', [
+            'subject' => 'Hello',
+            'message' => 'Anyone there?',
+            'type' => 'owner_employee',
+        ])->assertForbidden();
+
+        $this->assertDatabaseCount('conversations', 0);
     }
 }

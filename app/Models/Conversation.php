@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Conversation extends Model
 {
@@ -12,6 +13,7 @@ class Conversation extends Model
         'type',
         'owner_id',
         'customer_id',
+        'employee_id',
         'superadmin_id',
         'subject',
         'status',
@@ -35,6 +37,11 @@ class Conversation extends Model
         return $this->belongsTo(User::class, 'customer_id');
     }
 
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'employee_id');
+    }
+
     public function superadmin(): BelongsTo
     {
         return $this->belongsTo(User::class, 'superadmin_id');
@@ -45,13 +52,17 @@ class Conversation extends Model
         return $this->hasMany(ConversationMessage::class);
     }
 
-    public function lastMessage(): HasMany
+    public function lastMessage(): HasOne
     {
-        return $this->hasMany(ConversationMessage::class)->latestOfMany();
+        return $this->hasOne(ConversationMessage::class)->latestOfMany();
     }
 
     public function otherParty(int $userId): ?User
     {
+        if ($this->type === 'owner_employee') {
+            return $userId === $this->owner_id ? $this->employee : $this->owner;
+        }
+
         if ($this->type === 'superadmin_owner') {
             if ($userId === $this->owner_id) {
                 return $this->superadmin;

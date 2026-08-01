@@ -17,16 +17,17 @@ class ConversationController extends Controller
     {
         $user = $request->user();
 
-        $query = Conversation::with(['owner', 'customer', 'superadmin', 'lastMessage.sender']);
+        $query = Conversation::with(['owner', 'customer', 'employee', 'superadmin', 'lastMessage.sender']);
 
         if ($user->isSuperadmin()) {
             $query->where('type', 'superadmin_owner');
         } elseif ($user->isOwner()) {
             $query->where('owner_id', $request->ownerId() ?? $user->id);
+        } elseif ($user->isEmployee()) {
+            $query->where('type', 'owner_employee')->where('employee_id', $user->id);
         } elseif ($user->isCustomer()) {
             $query->where('type', 'customer_owner')->where('customer_id', $user->id);
         } else {
-            // Employees/suppliers use the support-messages system, not conversations
             $query->whereRaw('1 = 0');
         }
 
@@ -61,19 +62,35 @@ class ConversationController extends Controller
         $validated = $request->validate([
             'subject' => 'required|string|max:255',
             'message' => 'required|string|max:5000',
-            'type' => 'required|in:superadmin_owner,customer_owner',
-            'owner_id' => 'required_without:customer_id|nullable|exists:users,id',
-            'customer_id' => 'required_without:owner_id|nullable|exists:users,id',
+            'type' => 'required|in:superadmin_owner,customer_owner,owner_employee',
+            'owner_id' => 'nullable|exists:users,id',
+            'customer_id' => 'nullable|exists:users,id',
+            'employee_id' => 'nullable|exists:users,id',
         ]);
 
         $user = $request->user();
 
         if ($user->isOwner()) {
             $validated['owner_id'] = $request->ownerId() ?? $user->id;
-            $validated['type'] = 'customer_owner';
+            $validated['type'] = $validated['type'] === 'owner_employee' ? 'owner_employee' : 'customer_owner';
 
-            // Owners can only message customers who ordered from their store
-            if (!empty($validated['customer_id'])) {
+            if ($validated['type'] === 'owner_employee') {
+                // Owners can only message staff linked to their business
+                if (empty($validated['employee_id'])) {
+                    return response()->json(['message' => 'An employee is required.'], 422);
+                }
+                $employeeKnown = User::where('role', 'employee')
+                    ->where('id', $validated['employee_id'])
+                    ->where(function ($q) use ($validated) {
+                        $q->whereHas('employeeProfile.branch', fn ($qb) => $qb->where('owner_id', $validated['owner_id']))
+                            ->orWhereDoesntHave('employeeProfile.branch');
+                    })
+                    ->exists();
+                if (!$employeeKnown) {
+                    return response()->json(['message' => 'You can only message staff linked to your business.'], 403);
+                }
+            } elseif (!empty($validated['customer_id'])) {
+                // Owners can only message customers who ordered from their store
                 $customerKnown = Order::query()
                     ->where('user_id', $validated['customer_id'])
                     ->where(function ($q) use ($validated) {
@@ -85,12 +102,29 @@ class ConversationController extends Controller
                     return response()->json(['message' => 'You can only message customers who have ordered from your store.'], 403);
                 }
             }
+        } elseif ($user->isEmployee()) {
+            // Employees message their own owner (business owner of their assigned branch)
+            $ownerId = User::where('id', $user->id)
+                ->whereHas('employeeProfile.branch')
+                ->with('employeeProfile.branch:id,owner_id')
+                ->first()?->employeeProfile?->branch?->owner_id;
+            if (!$ownerId) {
+                return response()->json(['message' => 'Your account is not linked to a store owner.'], 403);
+            }
+            $validated['owner_id'] = $ownerId;
+            $validated['employee_id'] = $user->id;
+            $validated['type'] = 'owner_employee';
         } elseif ($user->isCustomer()) {
             $validated['customer_id'] = $user->id;
             $validated['owner_id'] = $validated['owner_id'] ?? User::where('role', 'owner')->first()?->id;
             $validated['type'] = 'customer_owner';
         } elseif ($user->isSuperadmin()) {
             $validated['type'] = 'superadmin_owner';
+            if (empty($validated['owner_id'])) {
+                return response()->json(['message' => 'An owner is required.', 'errors' => ['owner_id' => ['An owner is required.']]], 422);
+            }
+        } else {
+            return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
         // Reuse an existing open conversation with the same parties instead of duplicating threads
@@ -98,6 +132,7 @@ class ConversationController extends Controller
             ->where('type', $validated['type'])
             ->where('owner_id', $validated['owner_id'])
             ->where('customer_id', $validated['customer_id'] ?? null)
+            ->where('employee_id', $validated['employee_id'] ?? null)
             ->where('status', '!=', 'closed')
             ->orderByDesc('id')
             ->first();
@@ -108,6 +143,7 @@ class ConversationController extends Controller
                 'type' => $validated['type'],
                 'owner_id' => $validated['owner_id'],
                 'customer_id' => $validated['customer_id'] ?? null,
+                'employee_id' => $validated['employee_id'] ?? null,
                 'superadmin_id' => $user->isSuperadmin() ? $user->id : null,
                 'subject' => $validated['subject'],
                 'status' => 'open',
@@ -123,7 +159,7 @@ class ConversationController extends Controller
 
         $conversation->update(['last_message_at' => now(), 'status' => 'open']);
 
-        return response()->json($conversation->fresh(['owner', 'customer', 'superadmin', 'messages.sender']), $created ? 201 : 200);
+        return response()->json($conversation->fresh(['owner', 'customer', 'employee', 'superadmin', 'messages.sender']), $created ? 201 : 200);
     }
 
     public function show(Request $request, Conversation $conversation): JsonResponse
@@ -133,6 +169,9 @@ class ConversationController extends Controller
         if ($user->isOwner() && $conversation->owner_id !== ($request->ownerId() ?? $user->id)) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
+        if ($user->isEmployee() && $conversation->employee_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
         if ($user->isCustomer() && $conversation->customer_id !== $user->id) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
@@ -140,7 +179,7 @@ class ConversationController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        $conversation->load(['owner', 'customer', 'superadmin', 'messages.sender']);
+        $conversation->load(['owner', 'customer', 'employee', 'superadmin', 'messages.sender']);
 
         $conversation->messages()
             ->where('sender_id', '!=', $user->id)
@@ -155,6 +194,9 @@ class ConversationController extends Controller
         $user = $request->user();
 
         if ($user->isOwner() && $conversation->owner_id !== ($request->ownerId() ?? $user->id)) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isEmployee() && $conversation->employee_id !== $user->id) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
         if ($user->isCustomer() && $conversation->customer_id !== $user->id) {
@@ -243,6 +285,11 @@ class ConversationController extends Controller
             $conversations = Conversation::where('owner_id', $request->ownerId() ?? $user->id)
                 ->where('status', '!=', 'closed')
                 ->get();
+        } elseif ($user->isEmployee()) {
+            $conversations = Conversation::where('type', 'owner_employee')
+                ->where('employee_id', $user->id)
+                ->where('status', '!=', 'closed')
+                ->get();
         } elseif ($user->isCustomer()) {
             $conversations = Conversation::where('type', 'customer_owner')
                 ->where('customer_id', $user->id)
@@ -310,6 +357,46 @@ class ConversationController extends Controller
                 'is_active' => $u->is_active,
                 'avatar_text' => Str::upper(Str::substr($u->name, 0, 1)),
             ]);
+
+            // Staff linked to the owner's business
+            $employees = User::where('role', 'employee')
+                ->where(function ($q) use ($ownerId) {
+                    $q->whereHas('employeeProfile.branch', fn ($qb) => $qb->where('owner_id', $ownerId))
+                        ->orWhereDoesntHave('employeeProfile.branch');
+                })
+                ->orderBy('name')
+                ->get()
+                ->map(fn (User $u) => [
+                    'id' => $u->id,
+                    'name' => $u->name,
+                    'email' => $u->email,
+                    'role' => 'employee',
+                    'store_name' => null,
+                    'is_active' => $u->is_active,
+                    'avatar_text' => Str::upper(Str::substr($u->name, 0, 1)),
+                ]);
+
+            $contacts = $contacts->concat($employees);
+        } elseif ($user->isEmployee()) {
+            // Employees message their own owner only
+            $owner = User::where('id', $user->id)
+                ->whereHas('employeeProfile.branch')
+                ->with(['employeeProfile.branch.owner', 'employeeProfile.branch.owner.ownerProfile'])
+                ->first()?->employeeProfile?->branch?->owner;
+
+            if (!$owner) {
+                return response()->json(['data' => []]);
+            }
+
+            $contacts = collect([[
+                'id' => $owner->id,
+                'name' => $owner->name,
+                'email' => $owner->email,
+                'role' => 'owner',
+                'store_name' => $owner->ownerProfile?->brand_store_name ?? $owner->name,
+                'is_active' => $owner->is_active,
+                'avatar_text' => Str::upper(Str::substr($owner->name, 0, 1)),
+            ]]);
         } else {
             return response()->json(['data' => []]);
         }
