@@ -174,6 +174,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations', [ConversationController::class, 'index']);
     Route::post('/conversations', [ConversationController::class, 'store']);
     Route::get('/conversations/unread-count', [ConversationController::class, 'unreadCount']);
+    Route::get('/conversations/contacts', [ConversationController::class, 'contacts']);
     Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::patch('/conversations/{conversation}/status', [ConversationController::class, 'updateStatus']);
