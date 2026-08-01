@@ -47,6 +47,13 @@ class Business extends Model
         return $this->hasMany(Product::class, 'owner_id', 'owner_id');
     }
 
+    public function newProducts(): HasMany
+    {
+        return $this->hasMany(Product::class, 'owner_id', 'owner_id')
+            ->where('is_active', true)
+            ->where('created_at', '>=', now()->subDays(7));
+    }
+
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'business_user')

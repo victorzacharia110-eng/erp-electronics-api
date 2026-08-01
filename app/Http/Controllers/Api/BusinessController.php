@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Models\OwnerProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class BusinessController extends Controller
@@ -18,9 +19,10 @@ class BusinessController extends Controller
     {
         $businesses = Business::where('is_active', true)
             ->with('owner.ownerProfile')
-            ->withCount(['products' => function ($q) {
-                $q->where('is_active', true);
-            }])
+            ->withCount([
+                'products' => fn($q) => $q->where('is_active', true),
+                'newProducts' => fn($q) => $q->where('is_active', true)->where('created_at', '>=', Carbon::now()->subDays(7)),
+            ])
             ->orderBy('name')
             ->get()
             ->map(fn (Business $b) => $this->present($b));
@@ -36,6 +38,10 @@ class BusinessController extends Controller
         $business = Business::where('slug', $slug)
             ->where('is_active', true)
             ->with('owner.ownerProfile')
+            ->withCount([
+                'products' => fn($q) => $q->where('is_active', true),
+                'newProducts' => fn($q) => $q->where('is_active', true)->where('created_at', '>=', Carbon::now()->subDays(7)),
+            ])
             ->firstOrFail();
 
         return response()->json($this->present($business));
@@ -79,6 +85,7 @@ class BusinessController extends Controller
             'logo_path' => $business->logo_path ? '/branding/' . $business->logo_path : null,
             'is_active' => $business->is_active,
             'products_count' => $business->products_count ?? 0,
+            'new_arrivals_count' => $business->new_products_count ?? 0,
             'store_name' => $profile?->brand_store_name ?: $business->name,
             'brand_color' => $profile?->brand_color ?: '#e74c3c',
             'brand_color_secondary' => $profile?->brand_color_secondary ?: '#2c3e50',
