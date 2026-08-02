@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->throttleApi();
+        $middleware->redirectGuestsTo(null);
         $middleware->alias([
             'superadmin' => \App\Http\Middleware\SuperadminMiddleware::class,
             'supplier' => \App\Http\Middleware\SupplierMiddleware::class,

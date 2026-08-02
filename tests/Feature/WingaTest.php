@@ -345,4 +345,11 @@ class WingaTest extends TestCase
         $this->assertEquals(2.5, (float) $commission->withholding_tax);
         $this->assertEquals(47.5, (float) $commission->net_amount);
     }
+
+    public function test_unauthenticated_winga_endpoints_return_401(): void
+    {
+        $this->getJson('/api/wingas')->assertUnauthorized();
+        $this->getJson('/api/winga-commissions')->assertUnauthorized();
+        $this->getJson('/api/winga-commissions/summary')->assertUnauthorized();
+    }
 }
