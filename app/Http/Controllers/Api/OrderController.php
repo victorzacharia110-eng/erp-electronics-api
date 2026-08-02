@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Exceptions\AccountingException;
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use App\Models\InventoryTransaction;
 use App\Models\Order;
+use App\Models\Winga;
 use App\Services\AccountingEntryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -82,6 +84,7 @@ class OrderController extends Controller
             'delivery_required' => 'nullable|boolean',
             'shipping_cost' => 'nullable|numeric|min:0',
             'branch_id' => ['nullable', Rule::exists('branches', 'id')->where('owner_id', $request->ownerId())],
+            'winga_id' => ['nullable', 'integer'],
         ]);
 
         $user = $request->user();
@@ -97,6 +100,29 @@ class OrderController extends Controller
         $deliveryRequired = $validated['delivery_required'] ?? false;
         $shippingCost = $deliveryRequired ? ($validated['shipping_cost'] ?? 5000) : 0;
 
+        // Winga (street promoter) fee: a percentage added to the sale to fund the
+        // commission of the promoter who brought this customer to the shop.
+        $branchId = $validated['branch_id'] ?? null;
+        $wingaFee = 0;
+        $wingaId = $validated['winga_id'] ?? null;
+
+        if ($wingaId) {
+            $businessOwnerId = $branchId
+                ? optional(Branch::find($branchId))->owner_id
+                : $request->ownerId();
+
+            $winga = Winga::where('id', $wingaId)
+                ->where('owner_id', $businessOwnerId)
+                ->where('status', 'active')
+                ->first();
+
+            if (!$winga) {
+                return response()->json(['message' => 'The selected winga is not registered for this business.'], 422);
+            }
+
+            $wingaFee = round((float) $cart->subtotal * (float) $winga->commission_rate / 100, 2);
+        }
+
         $cart->update([
             'order_number' => 'ORD-' . strtoupper(Str::random(10)),
             'status' => 'pending',
@@ -104,8 +130,10 @@ class OrderController extends Controller
             'notes' => $validated['notes'] ?? null,
             'delivery_required' => $deliveryRequired,
             'shipping_cost' => $shippingCost,
-            'total' => $cart->subtotal + $shippingCost,
-            'branch_id' => $validated['branch_id'] ?? null,
+            'winga_id' => $wingaId,
+            'winga_fee' => $wingaFee,
+            'total' => round((float) $cart->subtotal + $shippingCost + $wingaFee, 2),
+            'branch_id' => $branchId,
         ]);
 
         return response()->json($cart->fresh(['items.productVariant.product', 'shippingAddress']));
@@ -209,7 +237,7 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $order = Order::with(['items.productVariant.product.inventory', 'branch'])
+            $order = Order::with(['items.productVariant.inventory', 'branch'])
                 ->where('id', $orderId)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -264,6 +292,8 @@ class OrderController extends Controller
 
             $this->entries->adjustCommissionForReturn($order, $returnedAmount, $returnedCogs, $user);
 
+            $this->entries->adjustWingaCommissionForReturn($order, $returnedAmount, $user);
+
             $fullyReturned = $order->items->every(fn ($item) => (int) $item->returned_quantity >= $item->quantity);
             if ($fullyReturned) {
                 $order->update(['status' => 'cancelled']);
@@ -312,6 +342,8 @@ class OrderController extends Controller
         $this->entries->postSale($order, $user);
 
         $this->entries->createCommission($order, $user, $cogsTotal);
+
+        $this->entries->createWingaCommission($order);
     }
 
     private function reversePaidOrder(Order $order, $user): void
@@ -340,5 +372,7 @@ class OrderController extends Controller
         $this->entries->reverseSale($order, $user);
 
         $this->entries->reverseCommissions($order, $user);
+
+        $this->entries->reverseWingaCommissions($order, $user);
     }
 }

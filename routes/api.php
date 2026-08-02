@@ -29,6 +29,8 @@ use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\SuperadminController;
 use App\Http\Controllers\Api\SupportMessageController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\WingaController;
+use App\Http\Controllers\Api\WingaCommissionController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -214,6 +216,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/commissions/{id}/pay', [CommissionController::class, 'pay']);
     Route::post('/commissions/pay-all', [CommissionController::class, 'payAll']);
     Route::get('/commissions/my-earnings', [CommissionController::class, 'employeeEarnings']);
+
+    // Wingas (street promoters) — managed by owner + employee, scoped to their business
+    Route::get('/wingas', [WingaController::class, 'index']);
+    Route::post('/wingas', [WingaController::class, 'store']);
+    Route::put('/wingas/{winga}', [WingaController::class, 'update']);
+    Route::patch('/wingas/{winga}/toggle-status', [WingaController::class, 'toggleStatus']);
+    Route::delete('/wingas/{winga}', [WingaController::class, 'destroy']);
+
+    // Winga commissions (view: owner + employee, pay: owner only)
+    Route::get('/winga-commissions', [WingaCommissionController::class, 'index']);
+    Route::get('/winga-commissions/summary', [WingaCommissionController::class, 'summary']);
+    Route::middleware('owner')->group(function () {
+        Route::post('/winga-commissions/{id}/pay', [WingaCommissionController::class, 'pay']);
+        Route::post('/winga-commissions/pay-all', [WingaCommissionController::class, 'payAll']);
+    });
 
     // Inventory (owner)
     Route::get('/inventory', [InventoryController::class, 'index']);

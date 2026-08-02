@@ -20,6 +20,8 @@ class Order extends Model
         'total',
         'shipping_address_id',
         'handled_by',
+        'winga_id',
+        'winga_fee',
         'notes',
         'tracking_number',
         'delivery_notes',
@@ -33,6 +35,7 @@ class Order extends Model
         return [
             'subtotal' => 'decimal:2',
             'shipping_cost' => 'decimal:2',
+            'winga_fee' => 'decimal:2',
             'total' => 'decimal:2',
             'shipped_at' => 'datetime',
             'delivered_at' => 'datetime',
@@ -69,6 +72,16 @@ class Order extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function winga(): BelongsTo
+    {
+        return $this->belongsTo(Winga::class);
+    }
+
+    public function wingaCommission(): HasOne
+    {
+        return $this->hasOne(WingaCommission::class);
     }
 
     public function items(): HasMany

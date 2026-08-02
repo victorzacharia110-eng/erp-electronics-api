@@ -11,11 +11,25 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Winga;
+use App\Models\WingaCommission;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class AccountingEntryService
 {
+    /**
+     * TRA withholding tax (TDS) rate on resident commission payments (%).
+     */
+    public const WINGA_WHT_RATE = 5.0;
+
+    /**
+     * Resolve the configured winga withholding tax rate (TRA compliant, default 5%).
+     */
+    public function getWingaWhtRate(): float
+    {
+        return (float) (Setting::where('key', 'winga_wht_rate')->value('value') ?? static::WINGA_WHT_RATE);
+    }
     /**
      * VAT rate (%) configured for the business, defaults to TRA standard rate.
      */
@@ -136,13 +150,23 @@ class AccountingEntryService
         $subtotalSplit = $this->splitVat((float) $order->subtotal, $rate);
         $shippingSplit = $this->splitVat((float) $order->shipping_cost, $rate);
 
+        // The winga fee is a price increase paid by the customer: part of the taxable sale,
+        // recognised as commission expense against a winga commission payable.
+        $wingaFee = (float) $order->winga_fee;
+        $saleGross = (float) $order->subtotal + $wingaFee;
+        $saleSplit = $this->splitVat($saleGross, $rate);
+
         $lines = [
             ['account_id' => $cash->id, 'debit' => (float) $order->total, 'credit' => 0, 'description' => "Payment for {$order->order_number}"],
-            ['account_id' => $sales->id, 'debit' => 0, 'credit' => $subtotalSplit['net'], 'description' => "Sale: {$order->order_number}"],
+            ['account_id' => $sales->id, 'debit' => 0, 'credit' => $saleSplit['net'], 'description' => "Sale: {$order->order_number}"],
         ];
 
-        if ($vatOutput && $subtotalSplit['vat'] > 0) {
-            $lines[] = ['account_id' => $vatOutput->id, 'debit' => 0, 'credit' => $subtotalSplit['vat'], 'description' => "VAT Output: {$order->order_number}"];
+        if ($vatOutput && $saleSplit['vat'] > 0) {
+            $lines[] = ['account_id' => $vatOutput->id, 'debit' => 0, 'credit' => $saleSplit['vat'], 'description' => "VAT Output: {$order->order_number}"];
+        }
+
+        if ($wingaFee > 0) {
+            $this->appendWingaLines($lines, $order, $owner);
         }
 
         if ((float) $order->shipping_cost > 0 && $shipping) {
@@ -179,13 +203,21 @@ class AccountingEntryService
         $subtotalSplit = $this->splitVat((float) $order->subtotal, $rate);
         $shippingSplit = $this->splitVat((float) $order->shipping_cost, $rate);
 
+        $wingaFee = (float) $order->winga_fee;
+        $saleGross = (float) $order->subtotal + $wingaFee;
+        $saleSplit = $this->splitVat($saleGross, $rate);
+
         $lines = [
-            ['account_id' => $sales->id, 'debit' => $subtotalSplit['net'], 'credit' => 0, 'description' => "Reversal sale: {$order->order_number}"],
+            ['account_id' => $sales->id, 'debit' => $saleSplit['net'], 'credit' => 0, 'description' => "Reversal sale: {$order->order_number}"],
             ['account_id' => $cash->id, 'debit' => 0, 'credit' => (float) $order->total, 'description' => "Refund: {$order->order_number}"],
         ];
 
-        if ($vatOutput && $subtotalSplit['vat'] > 0) {
-            $lines[] = ['account_id' => $vatOutput->id, 'debit' => $subtotalSplit['vat'], 'credit' => 0, 'description' => "Reversal VAT: {$order->order_number}"];
+        if ($vatOutput && $saleSplit['vat'] > 0) {
+            $lines[] = ['account_id' => $vatOutput->id, 'debit' => $saleSplit['vat'], 'credit' => 0, 'description' => "Reversal VAT: {$order->order_number}"];
+        }
+
+        if ($wingaFee > 0) {
+            $this->appendWingaReversalLines($lines, $order, $owner);
         }
 
         if ((float) $order->shipping_cost > 0 && $shipping) {
@@ -322,6 +354,179 @@ class AccountingEntryService
             'commission_rate' => $rate,
             'commission_amount' => $commissionAmount,
         ]);
+    }
+
+    /**
+     * Create the winga commission record for an order tagged with a winga.
+     * The gross commission equals the winga fee charged to the customer; TRA
+     * withholding tax (TDS) is computed at the configured rate.
+     */
+    public function createWingaCommission(Order $order): ?WingaCommission
+    {
+        $wingaFee = (float) $order->winga_fee;
+        $winga = $order->winga;
+
+        if (!$winga || $wingaFee <= 0 || $winga->status !== 'active') {
+            return null;
+        }
+
+        $whtRate = $this->getWingaWhtRate();
+        $withholdingTax = round($wingaFee * $whtRate / 100, 2);
+
+        return WingaCommission::create([
+            'winga_id' => $winga->id,
+            'order_id' => $order->id,
+            'order_amount' => $order->subtotal,
+            'commission_rate' => $winga->commission_rate,
+            'commission_amount' => $wingaFee,
+            'withholding_tax' => $withholdingTax,
+            'net_amount' => round($wingaFee - $withholdingTax, 2),
+            'status' => 'pending',
+        ]);
+    }
+
+    /**
+     * Reverse winga commissions on a cancelled order: delete pending, claw back paid.
+     */
+    public function reverseWingaCommissions(Order $order, User $actor): void
+    {
+        $owner = $this->ownerForOrder($order, $actor);
+        $pending = WingaCommission::where('order_id', $order->id)->where('status', 'pending')->get();
+        $paid = WingaCommission::where('order_id', $order->id)->where('status', 'paid')->get();
+
+        foreach ($pending as $commission) {
+            $commission->delete();
+        }
+
+        foreach ($paid as $commission) {
+            $this->clawbackWingaCommission($commission, $owner, $actor);
+        }
+    }
+
+    /**
+     * Reduce winga commissions proportionally for a partial return, posting an
+     * adjustment that reverses the accrued expense/payable for the returned share.
+     */
+    public function adjustWingaCommissionForReturn(Order $order, float $returnedAmount, User $actor): void
+    {
+        $total = (float) $order->subtotal;
+
+        if ($total <= 0) {
+            return;
+        }
+
+        $ratio = min(1, $returnedAmount / $total);
+        $returnedWingaFee = round((float) $order->winga_fee * $ratio, 2);
+
+        if ($returnedWingaFee <= 0) {
+            return;
+        }
+
+        $owner = $this->ownerForOrder($order, $actor);
+
+        foreach (WingaCommission::where('order_id', $order->id)->get() as $commission) {
+            if ($commission->status === 'pending') {
+                $newAmount = round(max(0, $commission->commission_amount - $returnedWingaFee), 2);
+                $newWht = round(max(0, $commission->withholding_tax - round($returnedWingaFee * $this->getWingaWhtRate() / 100, 2)), 2);
+                $newNet = round(max(0, $newAmount - $newWht), 2);
+
+                if ($newAmount <= 0) {
+                    $commission->delete();
+                } else {
+                    $commission->update([
+                        'order_amount' => round(max(0, $commission->order_amount - $returnedAmount), 2),
+                        'commission_amount' => $newAmount,
+                        'withholding_tax' => $newWht,
+                        'net_amount' => $newNet,
+                    ]);
+                }
+
+                $this->postWingaReturnAdjustment($owner, $order, $returnedWingaFee, $actor);
+            } elseif ($commission->status === 'paid') {
+                $this->clawbackWingaCommission($commission, $owner, $actor, $returnedWingaFee);
+            }
+        }
+    }
+
+    /**
+     * Post an entry that reverses the accrued winga commission for a returned amount:
+     * debit Winga Commission Payable, credit Commission Expense.
+     */
+    private function postWingaReturnAdjustment(User $owner, Order $order, float $amount, User $actor): void
+    {
+        $payable = $this->account($owner, '2100');
+        $expense = $this->account($owner, '5110');
+
+        $this->createEntry($owner, [
+            ['account_id' => $payable->id, 'debit' => $amount, 'credit' => 0, 'description' => "Winga commission reversal for returned items ({$order->order_number})"],
+            ['account_id' => $expense->id, 'debit' => 0, 'credit' => $amount, 'description' => "Winga commission reversal for returned items ({$order->order_number})"],
+        ], [
+            'date' => now()->toDateString(),
+            'description' => "Winga commission adjustment for returned order {$order->order_number}",
+            'posted_by' => $actor->id,
+            'source_type' => 'winga_commission',
+            'source_id' => (string) $order->id,
+        ]);
+    }
+
+    /**
+     * Reverse a paid winga commission payout (money and withheld tax come back).
+     */
+    private function clawbackWingaCommission(WingaCommission $commission, User $owner, User $actor, ?float $amount = null): void
+    {
+        $amount = $amount ?? (float) $commission->commission_amount;
+        $taxShare = round($amount * $this->getWingaWhtRate() / 100, 2);
+        $netShare = round($amount - $taxShare, 2);
+
+        if ($amount <= 0) {
+            return;
+        }
+
+        $payable = $this->account($owner, '2100');
+        $cash = $this->account($owner, '1020');
+        $whtPayable = $this->account($owner, '2120');
+
+        $this->createEntry($owner, [
+            ['account_id' => $cash->id, 'debit' => $netShare, 'credit' => 0, 'description' => "Winga commission clawback for order #{$commission->order_id}"],
+            ['account_id' => $whtPayable->id, 'debit' => $taxShare, 'credit' => 0, 'description' => "WHT clawback for order #{$commission->order_id}"],
+            ['account_id' => $payable->id, 'debit' => 0, 'credit' => $amount, 'description' => "Winga commission reversal for order #{$commission->order_id}"],
+        ], [
+            'date' => now()->toDateString(),
+            'description' => "Winga commission reversal for cancelled/returned order #{$commission->order_id}",
+            'posted_by' => $actor->id,
+            'source_type' => 'winga_commission',
+            'source_id' => (string) $commission->id,
+        ]);
+
+        if ($amount >= (float) $commission->commission_amount) {
+            $commission->update(['status' => 'reversed']);
+        }
+    }
+
+    /**
+     * Accrue a winga commission at sale time: expense debit / payable credit.
+     */
+    private function appendWingaLines(array &$lines, Order $order, User $owner): void
+    {
+        $expense = $this->account($owner, '5110');
+        $payable = $this->account($owner, '2100');
+        $fee = (float) $order->winga_fee;
+
+        $lines[] = ['account_id' => $expense->id, 'debit' => $fee, 'credit' => 0, 'description' => "Winga commission: {$order->order_number}"];
+        $lines[] = ['account_id' => $payable->id, 'debit' => 0, 'credit' => $fee, 'description' => "Winga commission payable: {$order->order_number}"];
+    }
+
+    /**
+     * Reverse the accrued winga commission: payable debit / expense credit.
+     */
+    private function appendWingaReversalLines(array &$lines, Order $order, User $owner): void
+    {
+        $expense = $this->account($owner, '5110');
+        $payable = $this->account($owner, '2100');
+        $fee = (float) $order->winga_fee;
+
+        $lines[] = ['account_id' => $payable->id, 'debit' => $fee, 'credit' => 0, 'description' => "Winga commission reversal: {$order->order_number}"];
+        $lines[] = ['account_id' => $expense->id, 'debit' => 0, 'credit' => $fee, 'description' => "Winga commission reversal: {$order->order_number}"];
     }
 
     /**

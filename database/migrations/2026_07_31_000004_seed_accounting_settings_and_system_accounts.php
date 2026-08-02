@@ -13,6 +13,7 @@ return new class extends Migration
             'vat_rate' => ['type' => 'decimal', 'value' => '18.00'],
             'income_tax_rate' => ['type' => 'decimal', 'value' => '30.00'],
             'prices_include_vat' => ['type' => 'boolean', 'value' => 'true'],
+            'winga_wht_rate' => ['type' => 'decimal', 'value' => '5.00'],
         ];
 
         foreach ($settings as $key => $setting) {
