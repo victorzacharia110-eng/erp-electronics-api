@@ -15,6 +15,16 @@ use Illuminate\Support\Facades\Http;
 
 class AnalyticsController extends Controller
 {
+    private function monthExpression(string $column): string
+    {
+        return match (DB::getDriverName()) {
+            'mysql', 'mariadb' => "DATE_FORMAT($column, '%Y-%m')",
+            'pgsql' => "to_char($column, 'YYYY-MM')",
+            'sqlsrv' => "FORMAT($column, 'yyyy-MM')",
+            default => "strftime('%Y-%m', $column)",
+        };
+    }
+
     public function sales(Request $request): JsonResponse
     {
         $months = (int) $request->query('months', 12);
@@ -25,7 +35,7 @@ class AnalyticsController extends Controller
         $monthlySales = Order::where('orders.status', 'paid')
             ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->select(
-                DB::raw("strftime('%Y-%m', orders.created_at) as month"),
+                DB::raw($this->monthExpression('orders.created_at') . ' as month'),
                 DB::raw('COUNT(*) as order_count'),
                 DB::raw('SUM(orders.total) as revenue'),
                 DB::raw('SUM(orders.shipping_cost) as shipping_revenue'),
@@ -39,7 +49,7 @@ class AnalyticsController extends Controller
             ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->select(
-                DB::raw("strftime('%Y-%m', orders.created_at) as month"),
+                DB::raw($this->monthExpression('orders.created_at') . ' as month'),
                 DB::raw('SUM(order_items.quantity) as items_sold'),
                 DB::raw('SUM(order_items.total) as item_revenue')
             )
@@ -52,7 +62,7 @@ class AnalyticsController extends Controller
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->join('product_variants', 'order_items.product_variant_id', '=', 'product_variants.id')
             ->select(
-                DB::raw("strftime('%Y-%m', orders.created_at) as month"),
+                DB::raw($this->monthExpression('orders.created_at') . ' as month'),
                 DB::raw('SUM(order_items.total) as revenue'),
                 DB::raw('SUM(order_items.quantity * product_variants.cost_price) as cost'),
                 DB::raw('SUM(order_items.total - order_items.quantity * product_variants.cost_price) as profit')
@@ -64,7 +74,7 @@ class AnalyticsController extends Controller
         $monthlyCancelled = Order::where('orders.status', 'cancelled')
             ->whereBetween('orders.created_at', [$startDate, $endDate])->tap(fn($q) => $q->when($ownerId, fn($qb) => $qb->whereHas('branch', fn($bc) => $bc->where('owner_id', $ownerId))))
             ->select(
-                DB::raw("strftime('%Y-%m', orders.created_at) as month"),
+                DB::raw($this->monthExpression('orders.created_at') . ' as month'),
                 DB::raw('COUNT(*) as cancelled_count'),
                 DB::raw('SUM(orders.total) as lost_revenue')
             )
