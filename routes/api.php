@@ -63,6 +63,9 @@ Route::get('/settings/payment', [SettingsController::class, 'payment']);
 // Public branding (returns the active owner's branding)
 Route::get('/settings/branding', [SettingsController::class, 'branding']);
 
+// Public home page content (DB-managed, EN+SW, falls back to defaults)
+Route::get('/settings/home-content', [SettingsController::class, 'homeContent']);
+
 // Authenticated routes
 Route::middleware('auth:sanctum')->group(function () {
     // Auth
@@ -302,5 +305,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/owners/{id}/set-password', [SuperadminController::class, 'setPassword']);
         Route::post('/owners/{id}/force-password-change', [SuperadminController::class, 'forcePasswordChange']);
         Route::post('/owners/{id}/unlock-account', [SuperadminController::class, 'unlockAccount']);
+
+        // System home page content (superadmin only write)
+        Route::put('/settings/home-content', [SettingsController::class, 'updateHomeContent']);
     });
 });

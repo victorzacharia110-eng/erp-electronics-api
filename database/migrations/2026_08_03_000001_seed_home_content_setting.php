@@ -1,101 +1,13 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
 
-use App\Http\Controllers\Controller;
-use App\Models\OwnerProfile;
-use App\Models\Setting;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-
-class SettingsController extends Controller
+return new class extends Migration
 {
-    public function payment(): JsonResponse
+    public function up(): void
     {
-        $clickpesaEnabled = Setting::where('key', 'clickpesa_enabled')->first();
-
-        return response()->json([
-            'clickpesa_enabled' => $clickpesaEnabled ? $clickpesaEnabled->getTypedValue() : false,
-        ]);
-    }
-
-    public function updatePayment(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'clickpesa_enabled' => 'required|boolean',
-        ]);
-
-        Setting::updateOrCreate(
-            ['key' => 'clickpesa_enabled'],
-            [
-                'value' => $validated['clickpesa_enabled'] ? 'true' : 'false',
-                'type' => 'boolean',
-            ]
-        );
-
-        return response()->json([
-            'message' => 'Payment settings updated',
-            'clickpesa_enabled' => $validated['clickpesa_enabled'],
-        ]);
-    }
-
-    public function homeContent(): JsonResponse
-    {
-        return response()->json($this->homeContentData());
-    }
-
-    public function updateHomeContent(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'en' => 'required|array',
-            'sw' => 'required|array',
-        ]);
-
-        $allowed = array_keys($this->homeContentDefaults()['en']);
-
-        $sanitize = function (array $values) use ($allowed): array {
-            $clean = [];
-            foreach ($allowed as $key) {
-                $clean[$key] = isset($values[$key]) && is_scalar($values[$key])
-                    ? (string) $values[$key]
-                    : '';
-            }
-            return $clean;
-        };
-
-        Setting::updateOrCreate(
-            ['key' => 'home_content'],
-            [
-                'value' => json_encode([
-                    'en' => $sanitize($validated['en']),
-                    'sw' => $sanitize($validated['sw']),
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                'type' => 'json',
-            ]
-        );
-
-        return response()->json([
-            'message' => 'Home content updated',
-            'content' => $this->homeContentData(),
-        ]);
-    }
-
-    private function homeContentData(): array
-    {
-        $defaults = $this->homeContentDefaults();
-        $saved = Setting::where('key', 'home_content')->first();
-        $stored = $saved ? $saved->getTypedValue() : [];
-        $stored = is_array($stored) ? $stored : [];
-
-        return [
-            'en' => array_replace($defaults['en'], $stored['en'] ?? []),
-            'sw' => array_replace($defaults['sw'], $stored['sw'] ?? []),
-        ];
-    }
-
-    private function homeContentDefaults(): array
-    {
-        return [
+        $content = [
             'en' => [
                 'heroBadge' => 'New Arrivals',
                 'heroTitle' => 'Quality Electronics at',
@@ -189,36 +101,20 @@ class SettingsController extends Controller
                 'dirNewArrivals' => 'Bidhaa mpya {count} zimefika',
             ],
         ];
+
+        DB::table('settings')->updateOrInsert(
+            ['key' => 'home_content'],
+            [
+                'value' => json_encode($content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'type' => 'json',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
     }
 
-    public function branding(Request $request): JsonResponse
+    public function down(): void
     {
-        $profile = null;
-
-        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
-            $profile = OwnerProfile::where('user_id', $business->owner_id)->with('user')->first();
-        }
-
-        if (!$profile) {
-            $profile = OwnerProfile::where('is_active', true)->with('user')->first();
-        }
-
-        if (!$profile) {
-            return response()->json([
-                'store_name' => 'ElectroShop',
-                'tagline' => 'Your trusted electronics store',
-                'logo_path' => null,
-                'color' => '#e74c3c',
-                'color_secondary' => '#2c3e50',
-            ]);
-        }
-
-        return response()->json([
-            'store_name' => $profile->brand_store_name || 'ElectroShop',
-            'tagline' => $profile->brand_tagline || 'Your trusted electronics store',
-            'logo_path' => $profile->brand_logo_path ? '/branding/' . $profile->brand_logo_path : null,
-            'color' => $profile->brand_color || '#e74c3c',
-            'color_secondary' => $profile->brand_color_secondary || '#2c3e50',
-        ]);
+        DB::table('settings')->where('key', 'home_content')->delete();
     }
-}
+};
