@@ -245,4 +245,93 @@ class ConversationTest extends TestCase
 
         $this->assertDatabaseCount('conversations', 0);
     }
+
+    public function test_customer_can_delete_their_own_conversation(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+        $conversation->messages()->create(['sender_id' => $owner->id, 'message' => 'Hi there']);
+        $conversation->messages()->create(['sender_id' => $customer->id, 'message' => 'Hi!']);
+
+        $token = $customer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}")
+            ->assertOk();
+
+        $this->assertDatabaseCount('conversations', 0);
+        $this->assertDatabaseCount('conversation_messages', 0);
+    }
+
+    public function test_customer_cannot_delete_another_customers_conversation(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $otherCustomer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+
+        $token = $otherCustomer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('conversations', 1);
+    }
+
+    public function test_owner_can_delete_conversation_with_their_employee(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $employee = User::factory()->create(['role' => 'employee']);
+        $conversation = Conversation::create([
+            'type' => 'owner_employee',
+            'owner_id' => $owner->id,
+            'employee_id' => $employee->id,
+            'subject' => 'Shift',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+
+        $token = $owner->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}")
+            ->assertOk();
+
+        $this->assertDatabaseCount('conversations', 0);
+    }
+
+    public function test_superadmin_can_only_delete_superadmin_owner_conversations(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+
+        $superadmin = User::factory()->create(['role' => 'superadmin']);
+        $token = $superadmin->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('conversations', 1);
+    }
 }

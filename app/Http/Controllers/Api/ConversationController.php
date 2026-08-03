@@ -227,6 +227,29 @@ class ConversationController extends Controller
         return response()->json($msg->load('sender'), 201);
     }
 
+    public function destroy(Request $request, Conversation $conversation): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user->isOwner() && $conversation->owner_id !== ($request->ownerId() ?? $user->id)) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isEmployee() && $conversation->employee_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isCustomer() && $conversation->customer_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isSuperadmin() && $conversation->type !== 'superadmin_owner') {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $conversation->messages()->delete();
+        $conversation->delete();
+
+        return response()->json(['message' => 'Conversation deleted.']);
+    }
+
     public function updateStatus(Request $request, Conversation $conversation): JsonResponse
     {
         $validated = $request->validate([
