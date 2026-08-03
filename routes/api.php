@@ -180,6 +180,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{conversation}', [ConversationController::class, 'show']);
     Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
+    Route::delete('/conversations/{conversation}/messages/{messageId}', [ConversationController::class, 'destroyMessage']);
     Route::patch('/conversations/{conversation}/status', [ConversationController::class, 'updateStatus']);
     Route::get('/conversations/{conversation}/owner-details', [ConversationController::class, 'ownerDetails']);
     Route::get('/conversations/{conversation}/customer-details', [ConversationController::class, 'customerDetails']);

@@ -227,6 +227,38 @@ class ConversationController extends Controller
         return response()->json($msg->load('sender'), 201);
     }
 
+    public function destroyMessage(Request $request, Conversation $conversation, int $messageId): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user->isOwner() && $conversation->owner_id !== ($request->ownerId() ?? $user->id)) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isEmployee() && $conversation->employee_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isCustomer() && $conversation->customer_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+        if ($user->isSuperadmin() && $conversation->type !== 'superadmin_owner') {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $message = $conversation->messages()->find($messageId);
+
+        if (!$message) {
+            return response()->json(['message' => 'Message not found.'], 404);
+        }
+
+        if ($message->sender_id !== $user->id) {
+            return response()->json(['message' => 'You can only delete your own messages.'], 403);
+        }
+
+        $message->delete();
+
+        return response()->json(['message' => 'Message deleted.']);
+    }
+
     public function destroy(Request $request, Conversation $conversation): JsonResponse
     {
         $user = $request->user();

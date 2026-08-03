@@ -334,4 +334,91 @@ class ConversationTest extends TestCase
 
         $this->assertDatabaseCount('conversations', 1);
     }
+
+    public function test_customer_can_delete_their_own_message(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+        $msg = $conversation->messages()->create(['sender_id' => $customer->id, 'message' => 'My message']);
+
+        $token = $customer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}/messages/{$msg->id}")
+            ->assertOk();
+
+        $this->assertDatabaseCount('conversation_messages', 0);
+        $this->assertDatabaseCount('conversations', 1);
+    }
+
+    public function test_customer_cannot_delete_another_users_message(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+        $msg = $conversation->messages()->create(['sender_id' => $owner->id, 'message' => 'Owners message']);
+
+        $token = $customer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}/messages/{$msg->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('conversation_messages', 1);
+    }
+
+    public function test_customer_cannot_delete_message_in_another_users_conversation(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $otherCustomer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+        $msg = $conversation->messages()->create(['sender_id' => $customer->id, 'message' => 'My message']);
+
+        $token = $otherCustomer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}/messages/{$msg->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('conversation_messages', 1);
+    }
+
+    public function test_deleting_message_not_in_conversation_returns_404(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $conversation = Conversation::create([
+            'type' => 'customer_owner',
+            'owner_id' => $owner->id,
+            'customer_id' => $customer->id,
+            'subject' => 'Hello',
+            'status' => 'open',
+            'last_message_at' => now(),
+        ]);
+
+        $token = $customer->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->deleteJson("/api/conversations/{$conversation->id}/messages/999")
+            ->assertNotFound();
+    }
 }
