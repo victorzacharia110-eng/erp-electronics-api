@@ -196,6 +196,21 @@ class SuperadminController extends Controller
 
         $profile->update($validated);
 
+        // Keep the public store record (directory/storefront) in sync with branding changes
+        $business = Business::where('owner_id', $owner->id)->first();
+        if ($business) {
+            $data = [];
+            if (array_key_exists('brand_store_name', $validated) && $validated['brand_store_name']) {
+                $data['name'] = $validated['brand_store_name'];
+            }
+            if (array_key_exists('brand_tagline', $validated)) {
+                $data['tagline'] = $validated['brand_tagline'] ?? '';
+            }
+            if ($data) {
+                $business->update($data);
+            }
+        }
+
         return response()->json([
             'message' => 'Branding updated',
             'owner' => $owner->fresh('ownerProfile'),
@@ -221,6 +236,9 @@ class SuperadminController extends Controller
         }
 
         $profile->update(['brand_logo_path' => $filename]);
+
+        // Keep the public store record (directory/storefront) in sync with the uploaded logo
+        Business::where('owner_id', $owner->id)->update(['logo_path' => $filename]);
 
         return response()->json([
             'message' => 'Logo updated',
