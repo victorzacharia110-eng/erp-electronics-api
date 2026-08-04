@@ -15,7 +15,7 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'order_id' => 'required|exists:orders,id',
-            'provider' => 'required|in:airtel,mixx_by_yas,mpesa,halopesa,clickpesa,cash',
+            'provider' => 'required|string|max:50',
             'phone_number' => 'nullable|string',
         ]);
 

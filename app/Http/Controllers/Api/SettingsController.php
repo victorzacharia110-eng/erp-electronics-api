@@ -3,16 +3,37 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Business;
 use App\Models\OwnerProfile;
 use App\Models\Setting;
+use App\Support\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
 {
-    public function payment(): JsonResponse
+    public function payment(Request $request): JsonResponse
     {
-        $clickpesaEnabled = Setting::where('key', 'clickpesa_enabled')->first();
+        $ownerId = null;
+
+        if ($slug = $request->query('business')) {
+            $business = Tenant::bySlug($slug);
+            $ownerId = $business?->owner_id;
+        }
+
+        if (!$ownerId) {
+            $ownerId = Business::where('is_active', true)->orderBy('id')->value('owner_id');
+        }
+
+        $scopedKey = $ownerId ? "clickpesa_enabled:{$ownerId}" : null;
+
+        $clickpesaEnabled = $scopedKey
+            ? Setting::where('key', $scopedKey)->first()
+            : null;
+
+        if (!$clickpesaEnabled) {
+            $clickpesaEnabled = Setting::where('key', 'clickpesa_enabled')->first();
+        }
 
         return response()->json([
             'clickpesa_enabled' => $clickpesaEnabled ? $clickpesaEnabled->getTypedValue() : false,
@@ -25,8 +46,10 @@ class SettingsController extends Controller
             'clickpesa_enabled' => 'required|boolean',
         ]);
 
+        $ownerId = $request->ownerId() ?? $request->user()->id;
+
         Setting::updateOrCreate(
-            ['key' => 'clickpesa_enabled'],
+            ['key' => "clickpesa_enabled:{$ownerId}"],
             [
                 'value' => $validated['clickpesa_enabled'] ? 'true' : 'false',
                 'type' => 'boolean',

@@ -3,22 +3,40 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Business;
 use App\Models\PaymentProvider;
+use App\Support\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PaymentProviderController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $providers = PaymentProvider::orderBy('sort_order')->get();
+        $providers = PaymentProvider::where('owner_id', $request->user()->id)
+            ->orderBy('sort_order')
+            ->get();
 
         return response()->json($providers);
     }
 
-    public function publicIndex(): JsonResponse
+    public function publicIndex(Request $request): JsonResponse
     {
-        $providers = PaymentProvider::where('enabled', true)
+        $ownerId = null;
+
+        if ($slug = $request->query('business')) {
+            $business = Tenant::bySlug($slug);
+            $ownerId = $business?->owner_id;
+        }
+
+        if (!$ownerId) {
+            // Fallback for directory/billing contexts: use the first active
+            // business's owner so existing single-shop installs keep working.
+            $ownerId = Business::where('is_active', true)->orderBy('id')->value('owner_id');
+        }
+
+        $providers = PaymentProvider::where('owner_id', $ownerId)
+            ->where('enabled', true)
             ->orderBy('sort_order')
             ->get();
 
@@ -38,6 +56,7 @@ class PaymentProviderController extends Controller
 
         $validated['enabled'] = $validated['enabled'] ?? true;
         $validated['sort_order'] = $validated['sort_order'] ?? 0;
+        $validated['owner_id'] = $request->user()->id;
 
         $provider = PaymentProvider::create($validated);
 
@@ -46,7 +65,7 @@ class PaymentProviderController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
-        $provider = PaymentProvider::findOrFail($id);
+        $provider = PaymentProvider::where('owner_id', $request->user()->id)->findOrFail($id);
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:100',
@@ -61,9 +80,9 @@ class PaymentProviderController extends Controller
         return response()->json($provider->fresh());
     }
 
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
-        $provider = PaymentProvider::findOrFail($id);
+        $provider = PaymentProvider::where('owner_id', $request->user()->id)->findOrFail($id);
         $provider->delete();
 
         return response()->json(['message' => 'Provider deleted']);
