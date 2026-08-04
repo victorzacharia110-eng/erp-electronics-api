@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Business;
+use App\Models\Order;
 use App\Models\OwnerProfile;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SubscriptionPayment;
 use App\Models\User;
@@ -59,11 +61,19 @@ class SuperadminController extends Controller
             ->with(['ownerProfile', 'orders' => fn($q) => $q->latest()->limit(10)])
             ->findOrFail($id);
 
+        $orders = Order::whereHas('branch', function ($q) use ($owner) {
+            $q->where('owner_id', $owner->id);
+        });
+
         $stats = [
-            'total_orders' => $owner->orders()->count(),
-            'total_revenue' => $owner->orders()->where('status', '!=', 'cancelled')->sum('total'),
-            'product_count' => \App\Models\Product::count(),
-            'employee_count' => User::where('role', 'employee')->count(),
+            'total_orders' => (clone $orders)->count(),
+            'total_revenue' => (clone $orders)->where('status', '!=', 'cancelled')->sum('total'),
+            'product_count' => Product::where('owner_id', $owner->id)->count(),
+            'employee_count' => User::where('role', 'employee')
+                ->whereHas('employeeProfile.branch', function ($q) use ($owner) {
+                    $q->where('owner_id', $owner->id);
+                })
+                ->count(),
         ];
 
         return response()->json(['owner' => $owner, 'stats' => $stats]);

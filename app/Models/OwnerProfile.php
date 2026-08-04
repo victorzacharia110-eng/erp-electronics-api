@@ -51,11 +51,15 @@ class OwnerProfile extends Model
 
     public function productCount(): int
     {
-        return \App\Models\Product::count();
+        return \App\Models\Product::where('owner_id', $this->user_id)->count();
     }
 
     public function employeeCount(): int
     {
-        return User::where('role', 'employee')->count();
+        return User::where('role', 'employee')
+            ->whereHas('employeeProfile.branch', function ($q) {
+                $q->where('owner_id', $this->user_id);
+            })
+            ->count();
     }
 }

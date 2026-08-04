@@ -55,8 +55,19 @@ Seeded per owner via `Database\Seeders\AccountingSeeder` (and `2026_07_31_000004
 
 - `php artisan accounting:generate-reports --year=2026 --month=7 --with-suggestions` – builds accounting reports and optionally refreshes AI suggestions.
 - `php artisan accounting:close-year --year=2026` – year-end close to retained earnings.
+- `php artisan subscription:deactivate-expired` – automatically deactivates owners whose trial/subscription has expired (sets `is_active=false`, status `expired`, `deactivation_reason='trial_expired'`). Reactivate or extend a trial from the superadmin dashboard (Owner Management → "Extend trial (30 days)") or via `POST /api/superadmin/owners/{id}/extend-trial`.
 
-Scheduled in `routes/console.php` (monthly report generation with suggestions, yearly close).
+Scheduled in `routes/console.php` (monthly report generation with suggestions, yearly close, hourly subscription expiry check).
+
+### Scheduler (cron)
+
+The Laravel scheduler drives the scheduled tasks above, including the **hourly** `subscription:deactivate-expired` auto-deactivation. Add a single cron entry on the server (required for automatic trial expiry):
+
+```cron
+* * * * * cd /path/to/erp-electronics-api && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Without this cron entry, scheduled commands never run — trigger the subscription check manually with `php artisan subscription:deactivate-expired`.
 
 ### API endpoints (auth: bearer token)
 
