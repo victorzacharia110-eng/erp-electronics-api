@@ -21,6 +21,8 @@ class OwnerProfile extends Model
         'brand_logo_path',
         'brand_color',
         'brand_color_secondary',
+        'whatsapp_number',
+        'whatsapp_default_message',
     ];
 
     protected $casts = [

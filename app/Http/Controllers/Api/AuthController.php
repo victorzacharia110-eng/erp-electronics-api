@@ -163,6 +163,8 @@ class AuthController extends Controller
                 'brand_tagline' => 'nullable|string|max:255',
                 'brand_color' => 'nullable|string|max:7',
                 'brand_color_secondary' => 'nullable|string|max:7',
+                'whatsapp_number' => 'nullable|string|max:30',
+                'whatsapp_default_message' => 'nullable|string|max:500',
             ]);
 
             $user->update($request->only(['name', 'email', 'phone']));
@@ -170,6 +172,7 @@ class AuthController extends Controller
             if ($user->ownerProfile) {
                 $profileData = array_filter($request->only([
                     'brand_store_name', 'brand_tagline', 'brand_color', 'brand_color_secondary',
+                    'whatsapp_number', 'whatsapp_default_message',
                 ]), fn($v) => $v !== null);
                 if (!empty($profileData)) {
                     $user->ownerProfile()->update($profileData);

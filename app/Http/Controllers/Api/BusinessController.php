@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Business;
 use App\Models\OwnerProfile;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -115,8 +116,23 @@ class BusinessController extends Controller
 
     private function present(Business $business): array
     {
-        $profile = $business->owner?->ownerProfile;
+        $owner = $business->owner;
+        $profile = $owner?->ownerProfile;
         $storeName = $profile?->brand_store_name ?: $business->name;
+
+        $employeePhone = User::where('role', 'employee')
+            ->whereHas('employeeProfile.branch', fn($q) => $q->where('owner_id', $business->owner_id))
+            ->orderBy('id')
+            ->value('phone');
+
+        $whatsappNumber = $business->whatsapp_number
+            ?: $employeePhone
+            ?: $profile?->whatsapp_number
+            ?: $owner?->phone;
+
+        $whatsappMessage = $business->whatsapp_default_message
+            ?: $profile?->whatsapp_default_message
+            ?: "Hello {$storeName}! I would like to know more about your products.";
 
         return [
             'id' => $business->id,
@@ -130,10 +146,9 @@ class BusinessController extends Controller
             'store_name' => $storeName,
             'brand_color' => $profile?->brand_color ?: '#e74c3c',
             'brand_color_secondary' => $profile?->brand_color_secondary ?: '#2c3e50',
-            'whatsapp_number' => $business->whatsapp_number,
+            'whatsapp_number' => $whatsappNumber,
             'whatsapp_default_message' => $business->whatsapp_default_message,
-            'whatsapp_message' => $business->whatsapp_default_message
-                ?: "Hello {$storeName}! I would like to know more about your products.",
+            'whatsapp_message' => $whatsappMessage,
             'contact_phone' => $business->contact_phone,
             'contact_email' => $business->contact_email,
             'address' => $business->address,
