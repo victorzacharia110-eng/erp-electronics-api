@@ -181,11 +181,12 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|max:255|unique:users,email,' . $user->id,
             'phone' => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|date',
         ]);
 
-        $user->update($request->only(['name', 'phone']));
+        $user->update($request->only(['name', 'email', 'phone']));
 
         if (isset($validated['date_of_birth'])) {
             $user->customerProfile()->updateOrCreate(

@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\ShippingController;
 use App\Http\Controllers\Api\StockAlertController;
+use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\SuperadminController;
 use App\Http\Controllers\Api\SupportMessageController;
@@ -150,6 +151,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Payments
     Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
     Route::get('/orders/{orderId}/payment-status', [PaymentController::class, 'status']);
+
+    // Subscription billing (owner)
+    Route::middleware('owner')->prefix('subscription')->group(function () {
+        Route::get('/plans', [SubscriptionController::class, 'plansIndex']);
+        Route::post('/pay', [SubscriptionController::class, 'pay']);
+        Route::get('/payments', [SubscriptionController::class, 'history']);
+    });
 
     // Addresses
     Route::apiResource('addresses', AddressController::class);
@@ -305,6 +313,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/owners/{id}/set-password', [SuperadminController::class, 'setPassword']);
         Route::post('/owners/{id}/force-password-change', [SuperadminController::class, 'forcePasswordChange']);
         Route::post('/owners/{id}/unlock-account', [SuperadminController::class, 'unlockAccount']);
+
+        // Subscription plans + payments (superadmin)
+        Route::get('/subscription/plans', [SuperadminController::class, 'subscriptionPlans']);
+        Route::put('/subscription/plans', [SuperadminController::class, 'updateSubscriptionPlans']);
+        Route::get('/subscription-payments', [SuperadminController::class, 'subscriptionPayments']);
+        Route::get('/owners/{id}/subscription-payments', [SuperadminController::class, 'ownerSubscriptionPayments']);
+        Route::post('/subscription-payments/{id}/confirm', [SuperadminController::class, 'confirmSubscriptionPayment']);
 
         // System home page content (superadmin only write)
         Route::put('/settings/home-content', [SettingsController::class, 'updateHomeContent']);

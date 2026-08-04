@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Business;
 use App\Models\OwnerProfile;
+use App\Models\Setting;
+use App\Models\SubscriptionPayment;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
 class SuperadminController extends Controller
@@ -97,10 +101,32 @@ class SuperadminController extends Controller
             'max_employees' => $validated['max_employees'] ?? 5,
         ]);
 
+        $this->createBusinessForOwner($user, $validated['name']);
+
         return response()->json([
             'owner' => $user->load('ownerProfile'),
             'default_password' => $defaultPassword,
         ], 201);
+    }
+
+    private function createBusinessForOwner(User $owner, string $displayName): void
+    {
+        $profile = $owner->ownerProfile;
+        $baseName = $profile?->brand_store_name ?: $displayName;
+        $slug = Str::slug($baseName) ?: 'store-' . $owner->id;
+
+        if (Business::where('slug', $slug)->exists()) {
+            $slug = Str::slug($baseName) . '-' . $owner->id;
+        }
+
+        Business::create([
+            'owner_id' => $owner->id,
+            'name' => $baseName,
+            'slug' => $slug,
+            'tagline' => $profile?->brand_tagline,
+            'logo_path' => $profile?->brand_logo_path,
+            'is_active' => true,
+        ]);
     }
 
     public function toggleActive($id)
@@ -206,6 +232,10 @@ class SuperadminController extends Controller
     public function destroy($id)
     {
         $owner = User::where('role', 'owner')->findOrFail($id);
+        \DB::table('orders')->where('handled_by', $owner->id)->update(['handled_by' => null]);
+        \DB::table('orders')->where('user_id', $owner->id)->delete();
+        \DB::table('subscription_payments')->where('user_id', $owner->id)->delete();
+        Business::where('owner_id', $owner->id)->delete();
         $owner->ownerProfile()->delete();
         $owner->delete();
 
@@ -323,6 +353,79 @@ class SuperadminController extends Controller
                 'email' => $owner->email,
                 'is_account_locked' => false,
             ],
+        ]);
+    }
+
+    public function subscriptionPlans()
+    {
+        return response()->json((new SubscriptionController)->planDefinitions());
+    }
+
+    public function updateSubscriptionPlans(Request $request)
+    {
+        $validated = $request->validate([
+            'starter' => 'required|array',
+            'pro' => 'required|array',
+            'enterprise' => 'required|array',
+        ]);
+
+        $allowed = ['price_monthly', 'max_products', 'max_employees'];
+        $clean = [];
+        foreach ($validated as $key => $plan) {
+            $clean[$key] = array_intersect_key($plan, array_flip($allowed));
+        }
+
+        Setting::updateOrCreate(
+            ['key' => 'subscription_plans'],
+            [
+                'value' => json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'type' => 'json',
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Subscription plans updated',
+            'plans' => (new SubscriptionController)->planDefinitions(),
+        ]);
+    }
+
+    public function subscriptionPayments()
+    {
+        $payments = SubscriptionPayment::with('user:id,name,email')
+            ->latest()
+            ->get();
+
+        return response()->json($payments);
+    }
+
+    public function ownerSubscriptionPayments($id)
+    {
+        User::where('role', 'owner')->findOrFail($id);
+
+        $payments = SubscriptionPayment::where('user_id', $id)
+            ->with('user:id,name,email')
+            ->latest()
+            ->get();
+
+        return response()->json($payments);
+    }
+
+    public function confirmSubscriptionPayment($id)
+    {
+        $payment = SubscriptionPayment::findOrFail($id);
+
+        if ($payment->status !== 'pending') {
+            return response()->json([
+                'message' => 'Only pending payments can be confirmed',
+                'payment' => $payment->fresh(),
+            ], 422);
+        }
+
+        (new SubscriptionController)->markCompleted($payment);
+
+        return response()->json([
+            'message' => 'Payment confirmed and subscription activated',
+            'payment' => $payment->fresh(),
         ]);
     }
 

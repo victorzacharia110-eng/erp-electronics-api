@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\SubscriptionPayment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -66,13 +67,23 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Invalid payload'], 400);
         }
 
-        $payment = Payment::where('provider_reference', $providerReference)->firstOrFail();
+        $payment = Payment::where('provider_reference', $providerReference)->first();
 
-        if ($status === 'completed') {
-            $payment->update(['status' => 'completed']);
-            $payment->order->markAsPaid();
+        if ($payment) {
+            if ($status === 'completed') {
+                $payment->update(['status' => 'completed']);
+                $payment->order->markAsPaid();
+            } else {
+                $payment->update(['status' => 'failed']);
+            }
         } else {
-            $payment->update(['status' => 'failed']);
+            $subscriptionPayment = SubscriptionPayment::where('provider_reference', $providerReference)->firstOrFail();
+
+            if ($status === 'completed') {
+                app(SubscriptionController::class)->markCompleted($subscriptionPayment);
+            } else {
+                $subscriptionPayment->update(['status' => 'failed']);
+            }
         }
 
         return response()->json(['message' => 'Webhook processed']);
