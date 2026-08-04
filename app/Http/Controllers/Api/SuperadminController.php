@@ -158,8 +158,47 @@ class SuperadminController extends Controller
 
         $profile->update($validated);
 
+        // Reactivating with a future expiry (manual extension) clears the
+        // automatic deactivation so the dashboard no longer prompts.
+        if (in_array($validated['subscription_status'], ['trial', 'active'], true)) {
+            $expiry = $validated['subscription_expires_at'] ?? $profile->subscription_expires_at;
+            if ($expiry && now()->lt($expiry)) {
+                $profile->update([
+                    'is_active' => true,
+                    'deactivation_reason' => null,
+                ]);
+                $owner->update(['is_active' => true]);
+            }
+        }
+
         return response()->json([
             'message' => 'Subscription updated',
+            'owner' => $owner->fresh('ownerProfile'),
+        ]);
+    }
+
+    public function extendTrial(Request $request, $id)
+    {
+        $owner = User::where('role', 'owner')->findOrFail($id);
+        $profile = $owner->ownerProfile()->firstOrCreate(['user_id' => $owner->id]);
+
+        $validated = $request->validate([
+            'days' => 'nullable|integer|min:1|max:365',
+        ]);
+
+        $days = $validated['days'] ?? 30;
+
+        $profile->update([
+            'subscription_status' => 'trial',
+            'subscription_expires_at' => now()->addDays($days),
+            'is_active' => true,
+            'deactivation_reason' => null,
+        ]);
+
+        $owner->update(['is_active' => true]);
+
+        return response()->json([
+            'message' => "Trial extended by {$days} day(s)",
             'owner' => $owner->fresh('ownerProfile'),
         ]);
     }

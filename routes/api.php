@@ -302,6 +302,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/owners/{id}', [SuperadminController::class, 'show']);
         Route::patch('/owners/{id}/toggle-active', [SuperadminController::class, 'toggleActive']);
         Route::put('/owners/{id}/subscription', [SuperadminController::class, 'updateSubscription']);
+        Route::post('/owners/{id}/extend-trial', [SuperadminController::class, 'extendTrial']);
         Route::put('/owners/{id}/limits', [SuperadminController::class, 'updateLimits']);
         Route::put('/owners/{id}/branding', [SuperadminController::class, 'updateBranding']);
         Route::post('/owners/{id}/branding-logo', [SuperadminController::class, 'updateBrandingLogo']);

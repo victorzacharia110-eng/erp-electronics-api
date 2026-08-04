@@ -13,6 +13,7 @@ class OwnerProfile extends Model
         'subscription_status',
         'subscription_expires_at',
         'subscription_plan',
+        'deactivation_reason',
         'max_products',
         'max_employees',
         'brand_store_name',
