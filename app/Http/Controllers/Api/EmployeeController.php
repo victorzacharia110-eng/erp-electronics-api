@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EmployeeDocument;
 use App\Models\EmployeeGuarantor;
 use App\Models\EmployeeProfile;
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,10 +24,8 @@ class EmployeeController extends Controller
             ->with(['employeeProfile.branch:id,name,city', 'guarantors']);
 
         if ($ownerId = $request->ownerId()) {
-            $query->where(function ($q) use ($ownerId) {
-                $q->whereHas('employeeProfile.branch', function ($qb) use ($ownerId) {
-                    $qb->where('owner_id', $ownerId);
-                })->orWhereDoesntHave('employeeProfile.branch');
+            $query->whereHas('employeeProfile.branch', function ($qb) use ($ownerId) {
+                $qb->where('owner_id', $ownerId);
             });
         }
 
@@ -87,8 +86,12 @@ class EmployeeController extends Controller
         $defaultPassword = strtoupper($validated['name']);
         $storedPaths = [];
 
+        $branchId = $validated['branch_id'] ?? Branch::where('owner_id', $request->ownerId())
+            ->where('is_default', true)
+            ->value('id');
+
         try {
-            $user = DB::transaction(function () use ($validated, $defaultPassword, $request, &$storedPaths) {
+            $user = DB::transaction(function () use ($validated, $defaultPassword, $request, &$storedPaths, $branchId) {
                 $user = User::create([
                     'name' => $validated['name'],
                     'email' => $validated['email'],
@@ -101,7 +104,7 @@ class EmployeeController extends Controller
 
                 EmployeeProfile::create([
                     'user_id' => $user->id,
-                    'branch_id' => $validated['branch_id'] ?? null,
+                    'branch_id' => $branchId,
                     'employee_code' => 'EMP-' . strtoupper(\Illuminate\Support\Str::random(6)),
                     'position' => 'Staff',
                     'hire_date' => now(),

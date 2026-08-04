@@ -77,6 +77,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Businesses an owner/co-owner can manage (multi-business + co-owner support)
     Route::get('/businesses/mine', [BusinessController::class, 'mine']);
+    Route::put('/businesses/{business}', [BusinessController::class, 'update']);
 
     // Employee management (owner only)
     Route::middleware('owner')->group(function () {

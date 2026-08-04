@@ -258,6 +258,25 @@ class DatabaseSeeder extends Seeder
         // Default settings
         Setting::create(['key' => 'clickpesa_enabled', 'value' => 'false', 'type' => 'boolean']);
 
+        // Ensure the owner's store has a default branch and Mathew belongs to it
+        $business = \App\Models\Business::where('owner_id', $owner->id)->first();
+        if ($business) {
+            $branch = \App\Models\Branch::where('owner_id', $owner->id)->first()
+                ?? \App\Models\Branch::create([
+                    'owner_id' => $owner->id,
+                    'name' => $business->name,
+                    'is_active' => true,
+                    'is_default' => true,
+                ]);
+
+            $employee->employeeProfile()->create([
+                'branch_id' => $branch->id,
+                'employee_code' => 'EMP-' . strtoupper(Str::random(6)),
+                'position' => 'Staff',
+                'hire_date' => now(),
+            ]);
+        }
+
         // Default payment providers
         PaymentProvider::create(['name' => 'M-Pesa', 'slug' => 'mpesa', 'number' => '0794770268', 'icon' => 'fas fa-mobile-screen', 'enabled' => true, 'sort_order' => 1]);
         PaymentProvider::create(['name' => 'Airtel Money', 'slug' => 'airtel', 'number' => '0683870268', 'icon' => 'fas fa-signal', 'enabled' => true, 'sort_order' => 2]);

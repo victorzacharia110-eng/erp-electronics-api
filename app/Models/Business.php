@@ -17,6 +17,16 @@ class Business extends Model
         'tagline',
         'logo_path',
         'is_active',
+        'whatsapp_number',
+        'whatsapp_default_message',
+        'contact_phone',
+        'contact_email',
+        'address',
+        'facebook_url',
+        'instagram_url',
+        'twitter_url',
+        'tiktok_url',
+        'youtube_url',
     ];
 
     protected function casts(): array
