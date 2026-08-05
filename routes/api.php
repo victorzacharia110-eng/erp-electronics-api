@@ -67,6 +67,9 @@ Route::get('/settings/branding', [SettingsController::class, 'branding']);
 // Public home page content (DB-managed, EN+SW, falls back to defaults)
 Route::get('/settings/home-content', [SettingsController::class, 'homeContent']);
 
+// Public platform (superadmin) contact info for the directory footer/top bar
+Route::get('/settings/platform-info', [SettingsController::class, 'platformInfo']);
+
 // Authenticated routes
 Route::middleware('auth:sanctum')->group(function () {
     // Auth

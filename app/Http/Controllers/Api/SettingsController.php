@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Business;
 use App\Models\OwnerProfile;
 use App\Models\Setting;
+use App\Models\User;
 use App\Support\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class SettingsController extends Controller
             $ownerId = $business?->owner_id;
         }
 
-        if (!$ownerId) {
+        if (! $ownerId) {
             $ownerId = Business::where('is_active', true)->orderBy('id')->value('owner_id');
         }
 
@@ -31,7 +32,7 @@ class SettingsController extends Controller
             ? Setting::where('key', $scopedKey)->first()
             : null;
 
-        if (!$clickpesaEnabled) {
+        if (! $clickpesaEnabled) {
             $clickpesaEnabled = Setting::where('key', 'clickpesa_enabled')->first();
         }
 
@@ -67,6 +68,20 @@ class SettingsController extends Controller
         return response()->json($this->homeContentData());
     }
 
+    public function platformInfo(): JsonResponse
+    {
+        $superadmin = User::where(fn ($q) => $q->where('is_superadmin', true)->orWhere('role', 'superadmin'))
+            ->orderBy('id')
+            ->first();
+
+        return response()->json([
+            'name' => $superadmin?->name,
+            'phone' => $superadmin?->phone,
+            'email' => $superadmin?->email,
+            'address' => null,
+        ]);
+    }
+
     public function updateHomeContent(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -83,6 +98,7 @@ class SettingsController extends Controller
                     ? (string) $values[$key]
                     : '';
             }
+
             return $clean;
         };
 
@@ -218,15 +234,15 @@ class SettingsController extends Controller
     {
         $profile = null;
 
-        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
+        if ($business = Tenant::bySlug($request->query('business'))) {
             $profile = OwnerProfile::where('user_id', $business->owner_id)->with('user')->first();
         }
 
-        if (!$profile) {
+        if (! $profile) {
             $profile = OwnerProfile::where('is_active', true)->with('user')->first();
         }
 
-        if (!$profile) {
+        if (! $profile) {
             return response()->json([
                 'store_name' => 'ElectroShop',
                 'tagline' => 'Your trusted electronics store',
@@ -239,7 +255,7 @@ class SettingsController extends Controller
         return response()->json([
             'store_name' => $profile->brand_store_name || 'ElectroShop',
             'tagline' => $profile->brand_tagline || 'Your trusted electronics store',
-            'logo_path' => $profile->brand_logo_path ? '/branding/' . $profile->brand_logo_path : null,
+            'logo_path' => $profile->brand_logo_path ? '/branding/'.$profile->brand_logo_path : null,
             'color' => $profile->brand_color || '#e74c3c',
             'color_secondary' => $profile->brand_color_secondary || '#2c3e50',
         ]);
