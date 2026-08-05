@@ -3,25 +3,54 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Category;
 use App\Models\Product;
-use App\Models\ProductVariant;
-use App\Models\Inventory;
+use App\Support\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    /**
+     * Resolve the tenant that public storefront data may be served for.
+     *
+     * Priority: the active business slug, then the authenticated owner's
+     * tenant, then the authenticated employee's first business. When nothing
+     * resolves, the caller gets no data so shops never see each other's rows.
+     */
+    private function publicOwnerId(Request $request): ?int
     {
-        $query = Product::with(['category', 'variants.inventory']);
-
-        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
-            $query->where('owner_id', $business->owner_id);
+        if ($business = Tenant::bySlug($request->query('business'))) {
+            return $business->owner_id;
         }
 
-        if (!$request->boolean('all')) {
+        $user = $request->user() ?? $request->user('sanctum');
+
+        if ($user && $user->isOwner()) {
+            return $user->ownedBusiness()?->owner_id ?? $user->id;
+        }
+
+        if ($user && $user->isEmployee()) {
+            return $user->employeeProfile?->branch?->owner_id;
+        }
+
+        return null;
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $ownerId = $this->publicOwnerId($request);
+
+        if ($ownerId === null) {
+            return response()->json(
+                Product::query()->whereRaw('1 = 0')->paginate($request->get('per_page', 12))
+            );
+        }
+
+        $query = Product::with(['category', 'variants.inventory'])
+            ->where('owner_id', $ownerId);
+
+        if (! $request->boolean('all')) {
             $query->where('is_active', true);
         }
 
@@ -32,8 +61,8 @@ class ProductController extends Controller
         if ($request->has('search')) {
             $query->where(function ($q) use ($request) {
                 $q->where('name', 'like', "%{$request->search}%")
-                  ->orWhere('brand', 'like', "%{$request->search}%")
-                  ->orWhere('sku', 'like', "%{$request->search}%");
+                    ->orWhere('brand', 'like', "%{$request->search}%")
+                    ->orWhere('sku', 'like', "%{$request->search}%");
             });
         }
 
@@ -49,14 +78,19 @@ class ProductController extends Controller
 
     public function show(Request $request, string $identifier): JsonResponse
     {
-        $query = Product::with(['category', 'variants.inventory'])
-            ->where('slug', $identifier)
-            ->orWhere('id', $identifier)
-            ->orWhere('sku', $identifier);
+        $ownerId = $this->publicOwnerId($request);
 
-        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
-            $query->where('owner_id', $business->owner_id);
+        if ($ownerId === null) {
+            return response()->json(['message' => 'Product not found'], 404);
         }
+
+        $query = Product::with(['category', 'variants.inventory'])
+            ->where('owner_id', $ownerId)
+            ->where(function ($q) use ($identifier) {
+                $q->where('slug', $identifier)
+                    ->orWhere('id', $identifier)
+                    ->orWhere('sku', $identifier);
+            });
 
         $product = $query->firstOrFail();
 
@@ -65,12 +99,15 @@ class ProductController extends Controller
 
     public function featured(Request $request): JsonResponse
     {
-        $query = Product::with(['category', 'variants.inventory'])
-            ->where('is_active', true);
+        $ownerId = $this->publicOwnerId($request);
 
-        if ($business = \App\Support\Tenant::bySlug($request->query('business'))) {
-            $query->where('owner_id', $business->owner_id);
+        if ($ownerId === null) {
+            return response()->json([]);
         }
+
+        $query = Product::with(['category', 'variants.inventory'])
+            ->where('is_active', true)
+            ->where('owner_id', $ownerId);
 
         $products = $query->inRandomOrder()->limit(8)->get();
 
@@ -129,7 +166,7 @@ class ProductController extends Controller
             'owner_id' => $ownerId,
         ]);
 
-        if (!empty($validated['variants'])) {
+        if (! empty($validated['variants'])) {
             foreach ($validated['variants'] as $v) {
                 $variant = $product->variants()->create([
                     'sku' => $v['sku'],
@@ -159,7 +196,7 @@ class ProductController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:100|unique:products,sku,' . $product->id,
+            'sku' => 'required|string|max:100|unique:products,sku,'.$product->id,
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'cost_price' => 'nullable|numeric|min:0',
@@ -186,7 +223,7 @@ class ProductController extends Controller
             $imagePath = null;
         } elseif ($request->hasFile('image_file')) {
             $imagePath = $this->handleImage($request);
-        } elseif (!empty($validated['image_url'])) {
+        } elseif (! empty($validated['image_url'])) {
             $imagePath = $validated['image_url'];
         }
 
@@ -225,8 +262,8 @@ class ProductController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('sku', 'like', "%{$search}%")
-                  ->orWhere('brand', 'like', "%{$search}%");
+                    ->orWhere('sku', 'like', "%{$search}%")
+                    ->orWhere('brand', 'like', "%{$search}%");
             });
         }
 
@@ -244,9 +281,10 @@ class ProductController extends Controller
     {
         if ($request->hasFile('image_file')) {
             $file = $request->file('image_file');
-            $filename = time() . '_' . Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) . '.' . $file->getClientOriginalExtension();
+            $filename = time().'_'.Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)).'.'.$file->getClientOriginalExtension();
             $file->move(public_path('products'), $filename);
-            return '/products/' . $filename;
+
+            return '/products/'.$filename;
         }
 
         if ($request->input('image_url')) {
