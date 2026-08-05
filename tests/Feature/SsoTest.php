@@ -97,7 +97,17 @@ class SsoTest extends TestCase
     {
         $this->getJson('/api/auth/sso/status')
             ->assertOk()
-            ->assertJson(['enabled' => true, 'provider' => 'azure']);
+            ->assertJson(['enabled' => true, 'ready' => true, 'provider' => 'azure']);
+    }
+
+    public function test_status_reports_not_ready_when_missing_credentials(): void
+    {
+        config()->set('sso.client_id', null);
+        config()->set('sso.client_secret', null);
+
+        $this->getJson('/api/auth/sso/status')
+            ->assertOk()
+            ->assertJson(['enabled' => true, 'ready' => false]);
     }
 
     public function test_status_reports_disabled_when_not_configured(): void
@@ -106,7 +116,7 @@ class SsoTest extends TestCase
 
         $this->getJson('/api/auth/sso/status')
             ->assertOk()
-            ->assertJson(['enabled' => false]);
+            ->assertJson(['enabled' => false, 'ready' => false]);
     }
 
     public function test_redirect_builds_authorization_url_and_stores_state(): void

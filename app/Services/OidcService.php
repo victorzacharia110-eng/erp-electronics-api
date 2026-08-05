@@ -22,10 +22,19 @@ class OidcService
             $response = Http::timeout(10)->acceptJson()->get($url);
 
             if ($response->failed()) {
-                throw new RuntimeException('Failed to fetch OIDC discovery document.');
+                throw new RuntimeException("Failed to fetch the OIDC discovery document from {$url} (HTTP {$response->status()}).");
             }
 
-            return $response->json();
+            $document = $response->json();
+
+            $required = ['authorization_endpoint', 'token_endpoint', 'issuer', 'jwks_uri'];
+            foreach ($required as $key) {
+                if (empty($document[$key])) {
+                    throw new RuntimeException("OIDC discovery document from {$url} is missing the required \"{$key}\" field.");
+                }
+            }
+
+            return $document;
         });
     }
 

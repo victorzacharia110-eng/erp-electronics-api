@@ -20,9 +20,17 @@ class SsoController extends Controller
 
     public function status(): JsonResponse
     {
+        $enabled = (bool) config('sso.enabled');
+
+        $ready = $enabled
+            && config('sso.client_id')
+            && config('sso.client_secret')
+            && (config('sso.authority') || config('sso.tenant_id'));
+
         return response()->json([
-            'enabled' => config('sso.enabled'),
-            'provider' => config('sso.enabled') ? config('sso.provider') : null,
+            'enabled' => $enabled,
+            'ready' => $ready,
+            'provider' => $enabled ? config('sso.provider') : null,
         ]);
     }
 
