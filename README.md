@@ -78,6 +78,33 @@ Without this cron entry, scheduled commands never run — trigger the subscripti
 | GET | `/api/accounts`, `/api/journal-entries`, `/api/reports/*` | owner |
 | POST | `/api/reports/ai-suggestions` | owner |
 
+## Storefront contact & WhatsApp
+
+Each business (white-label store) holds its own storefront contact settings, managed by the owner:
+
+| Field | Column |
+|-------|--------|
+| WhatsApp number | `businesses.whatsapp_number` |
+| Default chat message | `businesses.whatsapp_default_message` |
+| Contact phone / email | `businesses.contact_phone` / `businesses.contact_email` |
+| Address | `businesses.address` |
+| Social links | `facebook_url`, `instagram_url`, `twitter_url`, `tiktok_url`, `youtube_url` |
+
+The storefront builds `https://wa.me/{digits}?text={message}` links from the resolved number and message. Resolution order (`BusinessController@present()`):
+
+- **Number**: `businesses.whatsapp_number` → first employee phone (branch-scoped to the owner) → `owner_profiles.whatsapp_number` → owner phone.
+- **Message**: `businesses.whatsapp_default_message` → `owner_profiles.whatsapp_default_message` → `"Hello {store}! I would like to know more about your products."`
+
+Endpoints:
+
+| Method | Endpoint | Access |
+|--------|----------|--------|
+| GET | `/api/businesses` | public (directory list) |
+| GET | `/api/businesses/by-slug/{slug}` | public (storefront) |
+| GET | `/api/businesses/mine` | auth (owner/co-owner) |
+| PUT | `/api/businesses/{business}` | auth (owner/co-owner) — updates WhatsApp/contact/social fields |
+| GET | `/api/settings/platform-info` | public — superadmin name/phone/email for the directory |
+
 ## Rate limiting
 
 Named limiters are registered in `AppServiceProvider` and enabled via `throttleApi()` in `bootstrap/app.php`:
