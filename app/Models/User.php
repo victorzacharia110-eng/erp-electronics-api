@@ -13,7 +13,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'phone', 'password', 'role', 'is_active', 'is_superadmin', 'password_changed_at', 'failed_login_attempts', 'locked_until'])]
+#[Fillable(['name', 'email', 'phone', 'password', 'role', 'is_active', 'is_superadmin', 'password_changed_at', 'failed_login_attempts', 'locked_until', 'sso_provider', 'sso_subject'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -37,6 +37,10 @@ class User extends Authenticatable
 
     public function mustChangePassword(): bool
     {
+        if (!is_null($this->sso_provider)) {
+            return false;
+        }
+
         if (is_null($this->password_changed_at)) {
             return true;
         }

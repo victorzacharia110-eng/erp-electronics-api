@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\ShippingController;
+use App\Http\Controllers\Api\SsoController;
 use App\Http\Controllers\Api\StockAlertController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SupplierController;
@@ -37,6 +38,11 @@ use Illuminate\Support\Facades\Route;
 // Public routes
 Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:register');
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+
+// Single Sign-On (OIDC) — public; enabled via SSO_ENABLED
+Route::get('/auth/sso/status', [SsoController::class, 'status']);
+Route::get('/auth/sso/redirect', [SsoController::class, 'redirect']);
+Route::get('/auth/sso/callback', [SsoController::class, 'callback']);
 
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/featured', [ProductController::class, 'featured']);
